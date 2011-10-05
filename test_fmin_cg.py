@@ -15,10 +15,108 @@ from itertools import islice
 
 import miniml
 import numpy
+import scipy
 
 import theano
 from theano import config, tensor
 from ncg import leon_ncg
+
+
+class ModelInterface(object):
+
+    """
+    Provides an interface with convenience functions for optimization.
+    """
+
+    def __init__(self, model, data):
+        self.model = model
+        params = self.model.params
+        n_params = sum(p.get_value(borrow=True).size for p in params)
+        self.params_vec = numpy.zeros(n_params, dtype=config.floatX)
+        self.compute_cost = theano.function(
+                [self.model.input, self.model.task_spec.target],
+                self.model.task_spec.total_cost)
+        self.compute_grad = theano.function(
+                [self.model.input, self.model.task_spec.target],
+                tensor.grad(self.model.task_spec.total_cost, params))
+        # Currently we ignore those, so better make sure they are not used.
+        assert not self.model.task_spec.new_params
+        assert self.model.reg_coeff == 0
+        # Build data matrices.
+        n_samples = len(data)
+        first_input = data[0][0]
+        if first_input.shape:
+            assert len(first_input.shape) == 1
+            input_size = len(first_input)
+        else:
+            # Scalar value.
+            input_size = 1
+        first_target = data[0][1]
+        if first_target.shape:
+            assert len(first_target.shape) == 1
+            target_size = len(first_target)
+        else:
+            # Scalar value.
+            target_size = 1
+        print 'input_size = %s, target_size = %s' % (input_size, target_size)
+        self.data_input = numpy.zeros((n_samples, input_size),
+                                      dtype=config.floatX)
+        self.data_target = numpy.zeros((n_samples, target_size),
+                                       dtype=config.floatX)
+        for i, sample in enumerate(data):
+            input, target = sample
+            self.data_input[i] = input
+            self.data_target[i] = target
+
+    def fill_params(self, param_values):
+        """
+        Fill parameters with provided values.
+        """
+        idx = 0
+        for p in self.model.params:
+            p_current = p.get_value(borrow=True)
+            p_vals = param_values[idx:idx + p_current.size]
+            p.set_value(p_vals.reshape(p_current.shape))
+            idx += p_current.size
+
+    def cost(self, param_values):
+        """
+        Return cost at given parameter values.
+        """
+        self.fill_params(param_values)
+        return self.compute_cost(self.data_input, self.data_target)
+
+    def grad(self, param_values):
+        """
+        Return gradient at given parameter values.
+        """
+        self.fill_params(param_values)
+        grads = self.compute_grad(self.data_input, self.data_target)
+        return self.flatten(grads)
+
+    def flatten(self, arrays):
+        """
+        Return a vector containing all elements in all arrays.
+
+        The total number of elements is assumed to be the number of float
+        parameters to be optimized.
+        """
+        rval = self.params_vec.copy()
+        # Fill vector with content of all arrays.
+        idx = 0
+        for array_val in arrays:
+            rval[idx:idx + array_val.size] = array_val.flatten()
+            idx += array_val.size
+        return rval
+
+
+    def params_to_vec(self):
+        return self.flatten([p.get_value(borrow=True)
+                             for p in self.model.params])
+
+
+def as_array(*args):
+    return [numpy.asarray(x, dtype=config.floatX) for x in args]
 
 
 def get_data(spec):
@@ -41,8 +139,21 @@ def get_data_f1():
         x = rng.uniform(low=x_range[0], high=x_range[1])
         y = math.sin(math.pi * x) + rng.normal(loc=noise['mu'],
                                                scale=noise['sigma'])
-        yield (numpy.array([x], dtype=config.floatX),
-               numpy.array([y], dtype=config.floatX))
+        yield as_array(x, y)
+
+
+def get_data_f2():
+    """
+    f2(x) = (x - 1)**2
+
+    x ~ U[-10, 10]
+    """
+    x_range = [-10, 10]
+    rng = get_rng()
+    while True:
+        x = rng.uniform(low=x_range[0], high=x_range[1])
+        y = (x - 1)**2
+        yield as_array(x, y)
 
 
 def get_model(spec):
@@ -58,12 +169,31 @@ def get_model(spec):
     n_inputs = int(sizes[0])
     n_outputs = int(sizes[-1])
     n_hidden = map(int, sizes[1:-1])
-    model = miniml.component.nnet.NNet(
+    nnet = miniml.component.nnet.NNet(
             task='regression',
             n_units=n_hidden + [n_outputs],
             transfer_functions=['tanh'] * len(n_hidden) + ['identity'],
             hidden_transfer_function=None,
             n_hidden=None, n_out=None)
+    
+    # Properly initialize all weights.
+    w0v = nnet.weights[0].get_value(borrow=True)
+    n_hidden_1 = w0v.shape[1]
+    nnet.weights[0].set_value(numpy.zeros((n_inputs, n_hidden_1),
+                                          dtype=config.floatX))
+    nnet.seed = nnet.get_seed(n_inputs)
+    nnet.forget()
+    nnet.init_weights()
+
+    # Gather list of all parameters.
+    params = nnet.weights + nnet.biases
+
+    # Expose model interface.
+    model = miniml.utility.Storage(
+            task_spec=nnet.task_spec,
+            input=nnet.input,
+            reg_coeff=nnet.reg_coeff.get_value(),
+            params=params)
     return model
 
 
@@ -75,7 +205,16 @@ def get_rng(seed=None):
 
 
 def minimize(model, data):
-    pass
+    print model.params
+    ui = ModelInterface(model=model, data=data)
+    def callback(param_values):
+        print ui.cost(param_values)
+    scipy.optimize.fmin_cg(
+            f=ui.cost,
+            x0=ui.params_to_vec(),
+            fprime=ui.grad,
+            callback=callback,
+            )
 
 
 def test(data='f1', model='1-8-8-1', n_train=1000):
