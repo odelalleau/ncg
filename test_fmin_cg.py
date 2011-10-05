@@ -11,11 +11,12 @@ __contact__ = "Olivier Delalleau <delallea@iro>"
 
 
 import math, sys, time
-from itertools import islice
+from itertools import islice, izip
 
 import miniml
 import numpy
 import scipy
+from matplotlib import pyplot
 
 import theano
 from theano import config, tensor
@@ -39,6 +40,10 @@ class ModelInterface(object):
         self.compute_grad = theano.function(
                 [self.model.input, self.model.task_spec.target],
                 tensor.grad(self.model.task_spec.total_cost, params))
+        self.compute_output = theano.function(
+                [self.model.input, self.model.task_spec.target],
+                self.model.output)
+
         # Currently we ignore those, so better make sure they are not used.
         assert not self.model.task_spec.new_params
         assert self.model.reg_coeff == 0
@@ -128,12 +133,12 @@ def get_data(spec):
 
 def get_data_f1():
     """
-    f1(x) = sin(pi * x) + normal(0, 0.01**2)
+    f1(x) = sin(pi * x) + normal(0, 0.1**2)
 
     x ~ U[-3, 3]
     """
     x_range = [-3, 3]
-    noise = dict(mu=0, sigma=0.01)
+    noise = dict(mu=0, sigma=0.1)
     rng = get_rng()
     while True:
         x = rng.uniform(low=x_range[0], high=x_range[1])
@@ -156,7 +161,7 @@ def get_data_f2():
         yield as_array(x, y)
 
 
-def get_model(spec):
+def get_model(spec, data):
     """
     Return model given by `spec`.
 
@@ -193,8 +198,10 @@ def get_model(spec):
             task_spec=nnet.task_spec,
             input=nnet.input,
             reg_coeff=nnet.reg_coeff.get_value(),
+            output=nnet.layers[nnet.output_is_layer],
             params=params)
-    return model
+    ui = ModelInterface(model=model, data=data)
+    return ui
 
 
 def get_rng(seed=None):
@@ -205,22 +212,46 @@ def get_rng(seed=None):
 
 
 def minimize(model, data):
-    print model.params
-    ui = ModelInterface(model=model, data=data)
+    best = [None]
     def callback(param_values):
-        print ui.cost(param_values)
+        print model.cost(param_values)
+        best[0] = param_values
     scipy.optimize.fmin_cg(
-            f=ui.cost,
-            x0=ui.params_to_vec(),
-            fprime=ui.grad,
+            f=model.cost,
+            x0=model.params_to_vec(),
+            fprime=model.grad,
             callback=callback,
+            maxiter=1000,
             )
+    return best[0]
 
 
-def test(data='f1', model='1-8-8-1', n_train=1000):
-    data = list(islice(get_data(data), n_train))
-    model = get_model(model)
-    minimize(model, data)
+def plot(model, params):
+    """
+    Plot true data vs. prediction.
+    """
+    to_plot = []
+    model.fill_params(params)
+    model_output = model.compute_output(model.data_input,
+                                        model.data_target)
+    for input, target, output in izip(model.data_input,
+                                      model.data_target,
+                                      model_output):
+        to_plot.append([input[0], target[0], output[0]])
+
+    to_plot = numpy.array(sorted(to_plot))
+    fig = pyplot.figure()
+    pyplot.plot(to_plot[:, 0], to_plot[:, 1], label='true')
+    pyplot.plot(to_plot[:, 0], to_plot[:, 2], label='model')
+    pyplot.legend()
+    pyplot.show()
+
+
+def test(data_spec='f1', model_spec='1-8-8-1', n_train=1000):
+    data = list(islice(get_data(data_spec), n_train))
+    model = get_model(spec=model_spec, data=data)
+    params = minimize(model, data)
+    plot(model, params)
 
 
 def test_ncg_2(profile=True, pydot_print=True):
