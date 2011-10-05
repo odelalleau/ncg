@@ -40,13 +40,8 @@ class ModelInterface(object):
         self.compute_grad = theano.function(
                 [self.model.input, self.model.task_spec.target],
                 tensor.grad(self.model.task_spec.total_cost, params))
-        self.compute_output = theano.function(
-                [self.model.input, self.model.task_spec.target],
-                self.model.output)
+        self.compute_output = self.model.task_spec.compute_output
 
-        # Currently we ignore those, so better make sure they are not used.
-        assert not self.model.task_spec.new_params
-        assert self.model.reg_coeff == 0
         # Build data matrices.
         n_samples = len(data)
         first_input = data[0][0]
@@ -84,9 +79,16 @@ class ModelInterface(object):
             p.set_value(p_vals.reshape(p_current.shape))
             idx += p_current.size
 
+    def all_costs(self, param_values):
+        """
+        Return all costs at given parameter values.
+        """
+        self.fill_params(param_values)
+        return self.model.task_spec.compute_costs(self.data_input, self.data_target)
+
     def cost(self, param_values):
         """
-        Return cost at given parameter values.
+        Return main cost at given parameter values.
         """
         self.fill_params(param_values)
         return self.compute_cost(self.data_input, self.data_target)
@@ -190,6 +192,11 @@ def get_model(spec, data):
     nnet.forget()
     nnet.init_weights()
 
+    # Currently we ignore those, so better make sure they are not used.
+    assert not nnet.task_spec.new_params
+    assert nnet.regularization_coeff == 0
+    assert nnet.output_is_layer == -1
+
     # Gather list of all parameters.
     params = nnet.weights + nnet.biases
 
@@ -197,8 +204,6 @@ def get_model(spec, data):
     model = miniml.utility.Storage(
             task_spec=nnet.task_spec,
             input=nnet.input,
-            reg_coeff=nnet.reg_coeff.get_value(),
-            output=nnet.layers[nnet.output_is_layer],
             params=params)
     ui = ModelInterface(model=model, data=data)
     return ui
@@ -214,7 +219,7 @@ def get_rng(seed=None):
 def minimize(model, data):
     best = [None]
     def callback(param_values):
-        print model.cost(param_values)
+        print model.all_costs(param_values)
         best[0] = param_values
     scipy.optimize.fmin_cg(
             f=model.cost,
@@ -234,6 +239,7 @@ def plot(model, params):
     model.fill_params(params)
     model_output = model.compute_output(model.data_input,
                                         model.data_target)
+
     for input, target, output in izip(model.data_input,
                                       model.data_target,
                                       model_output):
