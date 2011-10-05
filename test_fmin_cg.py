@@ -10,13 +10,78 @@ __license__ = "BSD"
 __contact__ = "Olivier Delalleau <delallea@iro>"
 
 
-import sys, time
+import math, sys, time
+from itertools import islice
 
+import miniml
 import numpy
 
 import theano
-from theano import tensor
+from theano import config, tensor
 from ncg import leon_ncg
+
+
+def get_data(spec):
+    """
+    Return iteratable on data specified by `spec`.
+    """
+    return eval('get_data_%s' % spec)()
+
+
+def get_data_f1():
+    """
+    f1(x) = sin(pi * x) + normal(0, 0.01**2)
+
+    x ~ U[-3, 3]
+    """
+    x_range = [-3, 3]
+    noise = dict(mu=0, sigma=0.01)
+    rng = get_rng()
+    while True:
+        x = rng.uniform(low=x_range[0], high=x_range[1])
+        y = math.sin(math.pi * x) + rng.normal(loc=noise['mu'],
+                                               scale=noise['sigma'])
+        yield (numpy.array([x], dtype=config.floatX),
+               numpy.array([y], dtype=config.floatX))
+
+
+def get_model(spec):
+    """
+    Return model given by `spec`.
+
+    :param spec: A string of the form "x-y-z-t" with `x` the size of the input
+    layer, `t` the size of the output layer, and `y` and `z` the sizes of
+    hidden layers. The number of hidden layers may be arbitrary.
+    """
+    sizes = spec.split('-')
+    assert len(sizes) >= 2
+    n_inputs = int(sizes[0])
+    n_outputs = int(sizes[-1])
+    n_hidden = map(int, sizes[1:-1])
+    model = miniml.component.nnet.NNet(
+            task='regression',
+            n_units=n_hidden + [n_outputs],
+            transfer_functions=['tanh'] * len(n_hidden) + ['identity'],
+            hidden_transfer_function=None,
+            n_hidden=None, n_out=None)
+    return model
+
+
+def get_rng(seed=None):
+    if seed is None:
+        seed = getattr(get_rng, 'seed', 1827)
+        get_rng.seed = seed * 2 # for next RNG
+    return numpy.random.RandomState(seed)
+
+
+def minimize(model, data):
+    pass
+
+
+def test(data='f1', model='1-8-8-1', n_train=1000):
+    data = list(islice(get_data(data), n_train))
+    model = get_model(model)
+    minimize(model, data)
 
 
 def test_ncg_2(profile=True, pydot_print=True):
@@ -124,7 +189,8 @@ def test_ncg_2(profile=True, pydot_print=True):
 
 
 def main():
-    test_ncg_2()
+    test()
+    #test_ncg_2()
     return 0
 
 
