@@ -203,8 +203,9 @@ def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsi
     size (can be scalar or vector).
     callback : callable
     An optional user-supplied function, called after each
-    iteration. Called as callback(xk), where xk is the
-    current parameter vector.
+    iteration. Called as callback(xk, beta_k), where xk is the
+    current parameter vector and beta_k the coefficient for the
+    new direction.
     direction : string
     Formula used to computed the new direction, among:
         - polak-ribiere
@@ -272,6 +273,7 @@ def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsi
     # gfkp1  <->  f'(x_{k+1})
     # deltak <->  || f'(x_k) ||^2
     # yk     <->  f'(x_{k+1}) - f'(x_k)
+    # pk     <->  d_k
     while (gnorm > gtol) and (k < maxiter):
         deltak = numpy.dot(gfk, gfk)
 
@@ -299,13 +301,16 @@ def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsi
         if direction == 'polak-ribiere':
             # Polak-Ribiere.
             beta_k = max(0, numpy.dot(yk, gfkp1) / deltak)
+        elif direction == 'hestenes-stiefel':
+            # Hestenes-Stiefel.
+            beta_k = max(0, numpy.dot(yk, gfkp1) / numpy.dot(yk, pk))
         else:
             raise NotImplementedError(direction)
         pk = -gfkp1 + beta_k * pk
         gfk = gfkp1
         gnorm = vecnorm(gfk, ord=norm)
         if callback is not None:
-            callback(xk)
+            callback(xk, beta_k)
         k += 1
 
 
