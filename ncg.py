@@ -269,7 +269,6 @@ def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, eps
     gnorm = vecnorm(g_t, ord=norm)
 
     while (gnorm > gtol) and (t < maxiter):
-        delta_t = numpy.dot(g_t, g_t)
 
         # These values are modified by the line search, even if it fails
         old_fval_backup = old_fval
@@ -295,6 +294,7 @@ def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, eps
         h_t_minus_g_t = g_tp1 - g_t
         if direction == 'polak-ribiere':
             # Polak-Ribiere.
+            delta_t = numpy.dot(g_t, g_t)
             lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1) / delta_t)
         elif direction == 'hestenes-stiefel':
             # Hestenes-Stiefel.
