@@ -178,7 +178,7 @@ def leon_ncg_theano(cost_fn, x0s, args=(), gtol=1e-5,
     sol = [outs[0][-1]] + [x[-1] for x in outs[2:2+n_elems]]
     return sol
 
-def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsilon=_epsilon,
+def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsilon=_epsilon,
               maxiter=None, full_output=0, disp=1, retall=0, callback=None,
               direction='hestenes-stiefel',
               ):
@@ -188,7 +188,7 @@ def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsi
     ----------
     f : callable f(x,*args)
     Objective function to be minimized.
-    x0 : ndarray
+    w_0 : ndarray
     Initial guess.
     fprime : callable f'(x,*args)
     Function which computes the gradient of f.
@@ -203,8 +203,8 @@ def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsi
     size (can be scalar or vector).
     callback : callable
     An optional user-supplied function, called after each
-    iteration. Called as callback(xk, beta_k), where xk is the
-    current parameter vector and beta_k the coefficient for the
+    iteration. Called as callback(w_t, lambda_t), where w_t is the
+    current parameter vector and lambda_t the coefficient for the
     new direction.
     direction : string
     Formula used to computed the new direction, among:
@@ -247,71 +247,66 @@ def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsi
     Ribiere. See Wright & Nocedal, 'Numerical Optimization',
     1999, pg. 120-122.
     """
-    x0 = numpy.asarray(x0).flatten()
+    w_0 = numpy.asarray(w_0).flatten()
     if maxiter is None:
-        maxiter = len(x0)*200
+        maxiter = len(w_0)*200
     func_calls, f = wrap_function(f, args)
     if fprime is None:
         grad_calls, myfprime = wrap_function(approx_fprime, (f, epsilon))
     else:
         grad_calls, myfprime = wrap_function(fprime, args)
-    gfk = myfprime(x0)
-    k = 0
-    N = len(x0)
-    xk = x0
-    old_fval = f(xk)
+    g_t = myfprime(w_0)
+    t = 0
+    N = len(w_0)
+    w_t = w_0
+    old_fval = f(w_t)
     old_old_fval = old_fval + 5000
 
     if retall:
-        allvecs = [xk]
-    sk = [2*gtol]
+        allvecs = [w_t]
     warnflag = 0
-    pk = -gfk
-    gnorm = vecnorm(gfk, ord=norm)
+    d_t = -g_t
+    gnorm = vecnorm(g_t, ord=norm)
 
-    # gfk    <->  f'(x_k)
-    # gfkp1  <->  f'(x_{k+1})
-    # deltak <->  || f'(x_k) ||^2
-    # yk     <->  f'(x_{k+1}) - f'(x_k)
-    # pk     <->  d_k
-    while (gnorm > gtol) and (k < maxiter):
-        deltak = numpy.dot(gfk, gfk)
+    while (gnorm > gtol) and (t < maxiter):
+        delta_t = numpy.dot(g_t, g_t)
 
         # These values are modified by the line search, even if it fails
         old_fval_backup = old_fval
         old_old_fval_backup = old_old_fval
 
-        alpha_k, fc, gc, old_fval, old_old_fval, gfkp1 = \
-                 line_search_wolfe1(f, myfprime, xk, pk, gfk, old_fval,
+        alpha_t, fc, gc, old_fval, old_old_fval, g_tp1 = \
+                 line_search_wolfe1(f, myfprime, w_t, d_t, g_t, old_fval,
                                   old_old_fval, c2=0.4)
-        if alpha_k is None: # line search failed -- use different one.
-            alpha_k, fc, gc, old_fval, old_old_fval, gfkp1 = \
-                     line_search_wolfe2(f, myfprime, xk, pk, gfk,
+        if alpha_t is None: # line search failed -- use different one.
+            alpha_t, fc, gc, old_fval, old_old_fval, g_tp1 = \
+                     line_search_wolfe2(f, myfprime, w_t, d_t, g_t,
                                         old_fval_backup, old_old_fval_backup)
-            if alpha_k is None or alpha_k == 0:
+            if alpha_t is None or alpha_t == 0:
                 # This line search also failed to find a better solution.
+                raise AssertionError()
                 warnflag = 2
                 break
-        xk = xk + alpha_k * pk
+        w_t = w_t + alpha_t * d_t
         if retall:
-            allvecs.append(xk)
-        if gfkp1 is None:
-            gfkp1 = myfprime(xk)
-        yk = gfkp1 - gfk
+            allvecs.append(w_t)
+        if g_tp1 is None:
+            g_tp1 = myfprime(w_t)
+        h_t_minus_g_t = g_tp1 - g_t
         if direction == 'polak-ribiere':
             # Polak-Ribiere.
-            beta_k = max(0, numpy.dot(yk, gfkp1) / deltak)
+            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1) / delta_t)
         elif direction == 'hestenes-stiefel':
             # Hestenes-Stiefel.
-            beta_k = max(0, numpy.dot(yk, gfkp1) / numpy.dot(yk, pk))
+            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1) / numpy.dot(h_t_minus_g_t, d_t))
         else:
             raise NotImplementedError(direction)
-        pk = -gfkp1 + beta_k * pk
-        gfk = gfkp1
-        gnorm = vecnorm(gfk, ord=norm)
+        d_t = -g_tp1 + lambda_t * d_t
+        g_t = g_tp1
+        gnorm = vecnorm(g_t, ord=norm)
         if callback is not None:
-            callback(xk, beta_k)
-        k += 1
+            callback(w_t, lambda_t)
+        t += 1
 
 
     if disp or full_output:
@@ -320,35 +315,35 @@ def leon_ncg_python(f, x0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsi
         if disp:
             print "Warning: Desired error not necessarily achieved due to precision loss"
             print " Current function value: %f" % fval
-            print " Iterations: %d" % k
+            print " Iterations: %d" % t
             print " Function evaluations: %d" % func_calls[0]
             print " Gradient evaluations: %d" % grad_calls[0]
 
-    elif k >= maxiter:
+    elif t >= maxiter:
         warnflag = 1
         if disp:
             print "Warning: Maximum number of iterations has been exceeded"
             print " Current function value: %f" % fval
-            print " Iterations: %d" % k
+            print " Iterations: %d" % t
             print " Function evaluations: %d" % func_calls[0]
             print " Gradient evaluations: %d" % grad_calls[0]
     else:
         if disp:
             print "Optimization terminated successfully."
             print " Current function value: %f" % fval
-            print " Iterations: %d" % k
+            print " Iterations: %d" % t
             print " Function evaluations: %d" % func_calls[0]
             print " Gradient evaluations: %d" % grad_calls[0]
 
 
     if full_output:
-        retlist = xk, fval, func_calls[0], grad_calls[0], warnflag
+        retlist = w_t, fval, func_calls[0], grad_calls[0], warnflag
         if retall:
             retlist += (allvecs,)
     else:
-        retlist = xk
+        retlist = w_t
         if retall:
-            retlist = (xk, allvecs)
+            retlist = (w_t, allvecs)
 
     return retlist
 

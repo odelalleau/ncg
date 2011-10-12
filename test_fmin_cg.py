@@ -220,32 +220,32 @@ def minimize(model, data):
     best = [None]
     count = [0]
     errors = []
-    betas = []
-    def callback(param_values, beta_k):
+    lambdas = []
+    def callback(param_values, lambda_t):
         count[0] += 1
         cost = model.all_costs(param_values)
         print '%s: %s' % (count[0], cost['mse'])
         best[0] = param_values
         errors.append(cost['mse'])
-        betas.append(beta_k)
+        lambdas.append(lambda_t)
     leon_ncg_python(
             f=model.cost,
-            x0=model.params_to_vec(),
+            w_0=model.params_to_vec(),
             fprime=model.grad,
             callback=callback,
             maxiter=500,
-            direction='polak-ribiere',
-            #direction='hestenes-stiefel',
+            #direction='polak-ribiere',
+            direction='hestenes-stiefel',
             )
-    return best[0], errors, betas
+    return best[0], errors, lambdas
 
 
-def plot(model, params, errors, betas):
+def plot(model, params, errors, lambdas):
     """
     Plot:
         - true data vs. prediction
         - training error over time
-        - evolution of beta_k
+        - evolution of lambda_t
     """
     to_plot = []
     model.fill_params(params)
@@ -271,11 +271,11 @@ def plot(model, params, errors, betas):
     pyplot.xlabel('time')
     pyplot.ylabel('training error')
 
-    # Evolution of beta_k.
+    # Evolution of lambda_t.
     fig = pyplot.figure()
-    pyplot.plot(betas)
+    pyplot.plot(lambdas)
     pyplot.xlabel('k')
-    pyplot.ylabel('beta_k')
+    pyplot.ylabel('lambda_t')
 
     # Show plots.
     pyplot.show()
@@ -284,8 +284,8 @@ def plot(model, params, errors, betas):
 def test(data_spec='f1', model_spec='1-8-8-1', n_train=1000):
     data = list(islice(get_data(data_spec), n_train))
     model = get_model(spec=model_spec, data=data)
-    params, errors, betas = minimize(model, data)
-    plot(model, params, errors, betas)
+    params, errors, lambdas = minimize(model, data)
+    plot(model, params, errors, lambdas)
 
 
 def test_ncg_2(profile=True, pydot_print=True):
