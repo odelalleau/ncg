@@ -1,7 +1,7 @@
 TODO
 ====
 
-1. Try Hestnes-Stiefel formula \lambda = [  f_{t+1} . (g_{t+1}-g_t) ] / [ d_t . (g_{t+1} - g_t) ]
+1. Try Hestenes-Stiefel formula \lambda = [  f_{t+1} . (g_{t+1}-g_t) ] / [ d_t . (g_{t+1} - g_t) ]
 2. Try conjugation with multiple directions
 3. Add online version.
 4. Replace line search by estimated curvature.
