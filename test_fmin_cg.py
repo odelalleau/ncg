@@ -116,6 +116,66 @@ class ModelInterface(object):
             idx += array_val.size
         return rval
 
+    def get_minibatch(self, k0, k1):
+        """
+        Return the pair (input, target) for minibatch [k0:k1].
+        """
+        if k1 is None:
+            # Easy case, get all data until end.
+            return self.data_input[k0:], self.data_target[k0:]
+        minibatch_size = k1 - k0
+        assert minibatch_size > 0
+        n_samples = len(self.data_input)
+        # Get index of first sample.
+        k0 = k0 % n_samples
+        # Get upper range value.
+        k1 = k0 + minibatch_size
+
+        # Handle simple situation with no cycle.
+        if k1 <= n_samples:
+            return self.data_input[k0:k1], self.data_target[k0:k1]
+
+        # Build minibatch.
+        rval_input = numpy.zeros((minibatch_size, self.data_input.shape[1]),
+                                 dtype=self.data_input.dtype)
+        rval_target = numpy.zeros((minibatch_size, self.data_target.shape[1]),
+                                  dtype=self.data_target.dtype)
+        start_minibatch = 0
+        start_data = k0
+        n_left = minibatch_size
+        while n_left > 0:
+            #print 'start_minibatch = %s' % start_minibatch
+            #print 'start_data = %s' % start_data
+            n_to_add = min(n_left, n_samples - start_data)
+            rval_input[start_minibatch:start_minibatch + n_to_add] = (
+                            self.data_input[start_data:start_data + n_to_add])
+            rval_target[start_minibatch:start_minibatch + n_to_add] = (
+                            self.data_target[start_data:start_data + n_to_add])
+            n_left -= n_to_add
+            start_minibatch += n_to_add
+            start_data = (start_data + n_to_add) % n_samples
+        return rval_input, rval_target
+
+    def make_cost(self, k0, k1):
+        """
+        Return callable function to compute cost on minibatch [k0:k1].
+        """
+        input, target = self.get_minibatch(k0, k1)
+        def f(param_values):
+            self.fill_params(param_values)
+            return self.compute_cost(input, target)
+        return f
+
+    def make_grad(self, k0, k1):
+        """
+        Return callable function to compute gradient on minibatch [k0:k1].
+        """
+        input, target = self.get_minibatch(k0, k1)
+        def g(param_values):
+            self.fill_params(param_values)
+            grads = self.compute_grad(input, target)
+            return self.flatten(grads)
+        return g
 
     def params_to_vec(self):
         return self.flatten([p.get_value(borrow=True)
@@ -229,13 +289,15 @@ def minimize(model, data):
         errors.append(cost['mse'])
         lambdas.append(lambda_t)
     leon_ncg_python(
-            f=model.cost,
+            make_f=model.make_cost,
             w_0=model.params_to_vec(),
-            fprime=model.grad,
+            make_fprime=model.make_grad,
             callback=callback,
             maxiter=500,
             #direction='polak-ribiere',
             direction='hestenes-stiefel',
+            minibatch_size=999,
+            minibatch_offset=None,
             )
     return best[0], errors, lambdas
 

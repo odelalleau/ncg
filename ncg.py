@@ -12,7 +12,8 @@ from itertools import izip
 
 import numpy
 from scipy.optimize.optimize import (
-        _epsilon, line_search_wolfe1, vecnorm, wrap_function)
+        _epsilon, line_search_wolfe1, line_search_wolfe2, vecnorm,
+        wrap_function)
 
 import theano
 import theano.tensor as TT
@@ -178,28 +179,29 @@ def leon_ncg_theano(cost_fn, x0s, args=(), gtol=1e-5,
     sol = [outs[0][-1]] + [x[-1] for x in outs[2:2+n_elems]]
     return sol
 
-def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, epsilon=_epsilon,
+def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
               maxiter=None, full_output=0, disp=1, retall=0, callback=None,
               direction='hestenes-stiefel',
+              minibatch_size=None,
+              minibatch_offset=None,
               ):
     """Minimize a function using a nonlinear conjugate gradient algorithm.
 
     Parameters
     ----------
-    f : callable f(x,*args)
-    Objective function to be minimized.
+    make_f : callable make_f(k0, k1)
+    When called with (k0, k1) as arguments, return a function f such that
+    f(w) is the objective to be minimize at parameter w, on minibatch x_k0
+    to x_k1. If k1 is None then the minibatch should contain all the
+    remaining data.
     w_0 : ndarray
     Initial guess.
-    fprime : callable f'(x,*args)
-    Function which computes the gradient of f.
-    args : tuple
-    Extra arguments passed to f and fprime.
+    make_fprime : callable make_f'(k0, k1)
+    Same as `make_f`, but to compute the derivative of f on a minibatch.
     gtol : float
     Stop when norm of gradient is less than gtol.
     norm : float
     Order of vector norm to use. -Inf is min, Inf is max.
-    epsilon : float or ndarray
-    If fprime is approximated, use this value for the step
     size (can be scalar or vector).
     callback : callable
     An optional user-supplied function, called after each
@@ -210,6 +212,12 @@ def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, eps
     Formula used to computed the new direction, among:
         - polak-ribiere
         - hestenes-stiefel
+    minibatch_size : int
+    Size of each minibatch. Use None for batch learning.
+    minibatch_offset : int
+    Shift of the minibatch. Use None to use the minibatch size (i.e. no
+    overlap at all if the minibatch size is less than half of the whole
+    dataset size).
 
     Returns
     -------
@@ -247,14 +255,25 @@ def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, eps
     Ribiere. See Wright & Nocedal, 'Numerical Optimization',
     1999, pg. 120-122.
     """
+    if minibatch_offset is None:
+        if minibatch_size is None:
+            # Batch learning: no offset is needed.
+            minibatch_offset = 0
+        else:
+            # Use the same offset as the minibatch size.
+            minibatch_offset = minibatch_size
     w_0 = numpy.asarray(w_0).flatten()
     if maxiter is None:
         maxiter = len(w_0)*200
-    func_calls, f = wrap_function(f, args)
-    if fprime is None:
-        grad_calls, myfprime = wrap_function(approx_fprime, (f, epsilon))
-    else:
-        grad_calls, myfprime = wrap_function(fprime, args)
+    k0 = 0
+    k1 = minibatch_size
+    f = make_f(k0, k1)
+    assert make_fprime is not None
+    fprime = make_fprime(k0, k1)
+    func_calls = [0]
+    grad_calls = [0]
+    tmp_func_calls, f = wrap_function(f, ())
+    tmp_grad_calls, myfprime = wrap_function(fprime, ())
     g_t = myfprime(w_0)
     t = 0
     N = len(w_0)
@@ -269,16 +288,15 @@ def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, eps
     gnorm = vecnorm(g_t, ord=norm)
 
     while (gnorm > gtol) and (t < maxiter):
-
         # These values are modified by the line search, even if it fails
         old_fval_backup = old_fval
         old_old_fval_backup = old_old_fval
 
-        alpha_t, fc, gc, old_fval, old_old_fval, g_tp1 = \
+        alpha_t, fc, gc, old_fval, old_old_fval, h_t = \
                  line_search_wolfe1(f, myfprime, w_t, d_t, g_t, old_fval,
                                   old_old_fval, c2=0.4)
         if alpha_t is None: # line search failed -- use different one.
-            alpha_t, fc, gc, old_fval, old_old_fval, g_tp1 = \
+            alpha_t, fc, gc, old_fval, old_old_fval, h_t = \
                      line_search_wolfe2(f, myfprime, w_t, d_t, g_t,
                                         old_fval_backup, old_old_fval_backup)
             if alpha_t is None or alpha_t == 0:
@@ -286,12 +304,32 @@ def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, eps
                 raise AssertionError()
                 warnflag = 2
                 break
-        w_t = w_t + alpha_t * d_t
+        # Update weights.
+        w_tp1 = w_t + alpha_t * d_t
+
+        # Compute derivative after the weight update, if not done already.
+        if h_t is None:
+            h_t = myfprime(w_tp1)
+        else:
+            assert (h_t == myfprime(w_tp1)).all() # Sanity check.
+
+        # Switch to next minibatch.
+        func_calls[0] += tmp_func_calls[0]
+        grad_calls[0] += tmp_grad_calls[0]
+        k0 += minibatch_offset
+        if minibatch_size is None:
+            k1 = None
+        else:
+            k1 = k0 + minibatch_size
+        tmp_func_calls, f = wrap_function(make_f(k0, k1), ())
+        tmp_grad_calls, myfprime = wrap_function(make_fprime(k0, k1), ())
+
+        # Compute derivative on new minibatch.
+        g_tp1 = myfprime(w_tp1)
+
         if retall:
-            allvecs.append(w_t)
-        if g_tp1 is None:
-            g_tp1 = myfprime(w_t)
-        h_t_minus_g_t = g_tp1 - g_t
+            allvecs.append(w_tp1)
+        h_t_minus_g_t = h_t - g_t
         if direction == 'polak-ribiere':
             # Polak-Ribiere.
             delta_t = numpy.dot(g_t, g_t)
@@ -303,6 +341,7 @@ def leon_ncg_python(f, w_0, fprime=None, args=(), gtol=1e-5, norm=numpy.Inf, eps
             raise NotImplementedError(direction)
         d_t = -g_tp1 + lambda_t * d_t
         g_t = g_tp1
+        w_t = w_tp1
         gnorm = vecnorm(g_t, ord=norm)
         if callback is not None:
             callback(w_t, lambda_t)
