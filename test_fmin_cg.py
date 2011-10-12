@@ -218,22 +218,29 @@ def get_rng(seed=None):
 
 def minimize(model, data):
     best = [None]
+    count = [0]
+    errors = []
     def callback(param_values):
-        print model.all_costs(param_values)
+        count[0] += 1
+        cost = model.all_costs(param_values)
+        print '%s: %s' % (count[0], cost['mse'])
         best[0] = param_values
+        errors.append(cost['mse'])
     scipy.optimize.fmin_cg(
             f=model.cost,
             x0=model.params_to_vec(),
             fprime=model.grad,
             callback=callback,
-            maxiter=1000,
+            maxiter=500,
             )
-    return best[0]
+    return best[0], errors
 
 
-def plot(model, params):
+def plot(model, params, errors):
     """
-    Plot true data vs. prediction.
+    Plot:
+        - true data vs. prediction
+        - training error over time
     """
     to_plot = []
     model.fill_params(params)
@@ -250,14 +257,18 @@ def plot(model, params):
     pyplot.plot(to_plot[:, 0], to_plot[:, 1], label='true')
     pyplot.plot(to_plot[:, 0], to_plot[:, 2], label='model')
     pyplot.legend()
+    fig = pyplot.figure()
+    pyplot.plot(errors)
+    pyplot.xlabel('time')
+    pyplot.ylabel('training error')
     pyplot.show()
 
 
 def test(data_spec='f1', model_spec='1-8-8-1', n_train=1000):
     data = list(islice(get_data(data_spec), n_train))
     model = get_model(spec=model_spec, data=data)
-    params = minimize(model, data)
-    plot(model, params)
+    params, errors = minimize(model, data)
+    plot(model, params, errors)
 
 
 def test_ncg_2(profile=True, pydot_print=True):
