@@ -20,7 +20,7 @@ from matplotlib import pyplot
 
 import theano
 from theano import config, tensor
-from ncg import leon_ncg
+from ncg import leon_ncg_python
 
 
 class ModelInterface(object):
@@ -226,12 +226,13 @@ def minimize(model, data):
         print '%s: %s' % (count[0], cost['mse'])
         best[0] = param_values
         errors.append(cost['mse'])
-    scipy.optimize.fmin_cg(
+    leon_ncg_python(
             f=model.cost,
             x0=model.params_to_vec(),
             fprime=model.grad,
             callback=callback,
             maxiter=500,
+            direction='polak-ribiere',
             )
     return best[0], errors
 
