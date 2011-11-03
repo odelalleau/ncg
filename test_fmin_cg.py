@@ -343,6 +343,7 @@ def plot(model, params, errors, lambdas):
     pyplot.show()
 
 
+# TODO n_train=1000 WORKS MUCH BETTER THAN n_train=999 => SUSPICIOUS
 def test(data_spec='f1', model_spec='1-8-8-1', n_train=1000):
     data = list(islice(get_data(data_spec), n_train))
     model = get_model(spec=model_spec, data=data)
