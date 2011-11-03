@@ -195,7 +195,15 @@ def get_data(spec):
     """
     Return iteratable on data specified by `spec`.
     """
-    return eval('get_data_%s' % spec)()
+    if '(' in spec:
+        start = spec.find('(')
+        end = spec.find(')')
+        assert start > 0 and end > 0
+        args = spec[start + 1:end]
+    else:
+        args = ''
+        start = len(spec)
+    return eval('get_data_%s(%s)' % (spec[0:start], args))
 
 
 def get_data_f1():
@@ -225,6 +233,26 @@ def get_data_f2():
     while True:
         x = rng.uniform(low=x_range[0], high=x_range[1])
         y = (x - 1)**2
+        yield as_array(x, y)
+
+
+def get_data_f3(d):
+    """
+    f3(x) = w' x + b + epsilon
+
+    x ~ U[-3, 3]^d
+    w = [1/d, 2/d, ..., 1]
+    b = 1
+    epsilon ~ N(0, 0.1)
+    """
+    x_range = [-3, 3]
+    rng = get_rng()
+    w = numpy.arange(1, d + 1) / float(d)
+    b = 1.
+    while True:
+        x = rng.uniform(low=x_range[0], high=x_range[1], size=d)
+        epsilon = rng.normal(loc=0, scale=0.1)
+        y = numpy.dot(w, x) + b + epsilon
         yield as_array(x, y)
 
 
@@ -319,11 +347,11 @@ def minimize(model, data):
             w_0=model.params_to_vec(),
             make_fprime=model.make_grad,
             callback=callback,
-            maxiter=500,
+            maxiter=1000,
             #direction='polak-ribiere',
             direction='hestenes-stiefel',
-            minibatch_size=999,
-            minibatch_offset=None,
+            minibatch_size=100,
+            minibatch_offset=30,
             )
     return best[0], errors, lambdas
 
@@ -370,7 +398,7 @@ def plot(model, params, errors, lambdas):
 
 
 # TODO n_train=1000 WORKS MUCH BETTER THAN n_train=999 => SUSPICIOUS
-def test(data_spec='f1', model_spec='1-8-8-1', n_train=1000):
+def test(data_spec='f3(1000)', model_spec='1000-1', n_train=1000):
     data = list(islice(get_data(data_spec), n_train))
     model = get_model(spec=model_spec, data=data)
     params, errors, lambdas = minimize(model, data)
