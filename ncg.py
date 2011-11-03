@@ -267,8 +267,8 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
         maxiter = len(w_0)*200
     k0 = 0
     k1 = minibatch_size
-    f = make_f(k0, k1)
     assert make_fprime is not None
+    f = make_f(k0, k1)
     fprime = make_fprime(k0, k1)
     func_calls = [0]
     grad_calls = [0]
