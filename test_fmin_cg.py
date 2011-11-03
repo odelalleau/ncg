@@ -13,6 +13,11 @@ __contact__ = "Olivier Delalleau <delallea@iro>"
 import math, sys, time
 from itertools import islice, izip
 
+import ubi_mm
+ubi_mm.init_ml(__file__)
+import ml
+import ml.util
+
 import miniml
 import numpy
 import scipy
@@ -230,16 +235,37 @@ def get_model(spec, data):
     :param spec: A string of the form "x-y-z-t" with `x` the size of the input
     layer, `t` the size of the output layer, and `y` and `z` the sizes of
     hidden layers. The number of hidden layers may be arbitrary.
+    By default the transfer function of hidden layers is `tanh`, while the
+    transfer function of the output layer is `identity`. These may be changed
+    by specifying the transfer function within parenthesis, for instance:
+        3-5-6(sigmoid)-3(identity)-1(sigmoid)
     """
+    def parse_size(s, default_transfer_function):
+        """
+        Return the pair (size, transfer_function) corresponding to string `s`.
+        """
+        if '(' in s:
+            start = s.find('(')
+            end = s.find(')')
+            assert start > 0 and end > 0
+            transfer_function = s[start + 1:end]
+        else:
+            transfer_function = default_transfer_function
+            start = len(s)
+        return int(s[0:start]), transfer_function
+
     sizes = spec.split('-')
     assert len(sizes) >= 2
-    n_inputs = int(sizes[0])
-    n_outputs = int(sizes[-1])
-    n_hidden = map(int, sizes[1:-1])
+    n_inputs, _ = parse_size(sizes[0], None)
+    assert _ is None    # No transfer function on inputs.
+    n_outputs, output_transfer = parse_size(sizes[-1], 'identity')
+    hidden = map(parse_size, sizes[1:-1], ['tanh'] * (len(sizes) - 2))
+    n_hidden = [h[0] for h in hidden]
+    hidden_transfer = [h[1] for h in hidden]
     nnet = miniml.component.nnet.NNet(
             task='regression',
             n_units=n_hidden + [n_outputs],
-            transfer_functions=['tanh'] * len(n_hidden) + ['identity'],
+            transfer_functions=hidden_transfer + [output_transfer],
             hidden_transfer_function=None,
             n_hidden=None, n_out=None)
     
@@ -456,6 +482,9 @@ def test_ncg_2(profile=True, pydot_print=True):
 
 
 def main():
+    ml.util.run_with_try(_main)
+
+def _main():
     test()
     #test_ncg_2()
     return 0
