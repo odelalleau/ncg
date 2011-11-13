@@ -34,8 +34,9 @@ class ModelInterface(object):
     Provides an interface with convenience functions for optimization.
     """
 
-    def __init__(self, model, data):
+    def __init__(self, model, data_iter, n_offline_train, n_test):
         self.model = model
+        self.data_iter = data_iter
         params = self.model.params
         n_params = sum(p.get_value(borrow=True).size for p in params)
         self.params_vec = numpy.zeros(n_params, dtype=config.floatX)
@@ -48,15 +49,17 @@ class ModelInterface(object):
         self.compute_output = self.model.task_spec.compute_output
 
         # Build data matrices.
-        n_samples = len(data)
-        first_input = data[0][0]
+        data = {}
+        data['test'] = list(islice(self.data_iter, n_test))
+        data['offline_train'] = list(islice(self.data_iter, n_offline_train))
+        first_input = data['offline_train'][0][0]
         if first_input.shape:
             assert len(first_input.shape) == 1
             input_size = len(first_input)
         else:
             # Scalar value.
             input_size = 1
-        first_target = data[0][1]
+        first_target = data['offline_train'][0][1]
         if first_target.shape:
             assert len(first_target.shape) == 1
             target_size = len(first_target)
@@ -64,14 +67,27 @@ class ModelInterface(object):
             # Scalar value.
             target_size = 1
         print 'input_size = %s, target_size = %s' % (input_size, target_size)
-        self.data_input = numpy.zeros((n_samples, input_size),
-                                      dtype=config.floatX)
-        self.data_target = numpy.zeros((n_samples, target_size),
-                                       dtype=config.floatX)
-        for i, sample in enumerate(data):
-            input, target = sample
-            self.data_input[i] = input
-            self.data_target[i] = target
+
+        n_data = {'offline_train': n_offline_train,
+                  'test': n_test,
+                  'online_train': n_offline_train,
+                  }
+        self.data_input = {}
+        self.data_target = {}
+        for data_type in n_data:
+            self.data_input[data_type] = numpy.zeros(
+                    (n_data[data_type], input_size), dtype=config.floatX)
+            self.data_target[data_type] = numpy.zeros(
+                    (n_data[data_type], target_size), dtype=config.floatX)
+            for i, sample in enumerate(data.get(data_type, [])):
+                input, target = sample
+                self.data_input[data_type][i] = input
+                self.data_target[data_type][i] = target
+        # Copy offline train data as first chunk of online data.
+        for d in self.data_input, self.data_target:
+            d['online_train'][:] = d['offline_train']
+        # Store range of the current chunk of online data.
+        self.online_chunk = [0, n_data['online_train']]
 
     def fill_params(self, param_values):
         """
@@ -89,12 +105,15 @@ class ModelInterface(object):
         Return all costs at given parameter values.
         """
         self.fill_params(param_values)
-        return self.model.task_spec.compute_costs(self.data_input, self.data_target)
+        return [self.model.task_spec.compute_costs(self.data_input[t],
+                                                   self.data_target[t])
+                for t in ('offline_train', 'test')]
 
     def cost(self, param_values):
         """
         Return main cost at given parameter values.
         """
+        raise AssertionError('We are not currently using this function')
         self.fill_params(param_values)
         return self.compute_cost(self.data_input, self.data_target)
 
@@ -102,6 +121,7 @@ class ModelInterface(object):
         """
         Return gradient at given parameter values.
         """
+        raise AssertionError('We are not currently using this function')
         self.fill_params(param_values)
         grads = self.compute_grad(self.data_input, self.data_target)
         return self.flatten(grads)
@@ -124,42 +144,41 @@ class ModelInterface(object):
     def get_minibatch(self, k0, k1):
         """
         Return the pair (input, target) for minibatch [k0:k1].
+
+        If k1 is None then we use offline training data.
         """
+        input = self.data_input['online_train']
+        target = self.data_target['online_train']
         if k1 is None:
-            # Easy case, get all data until end.
-            return self.data_input[k0:], self.data_target[k0:]
-        minibatch_size = k1 - k0
-        assert minibatch_size > 0
-        n_samples = len(self.data_input)
-        # Get index of first sample.
-        k0 = k0 % n_samples
-        # Get upper range value.
-        k1 = k0 + minibatch_size
+            # Easy case, get offline training data.
+            # Currently this should only happen when k0 == 0.
+            assert k0 == 0
+            return input[k0:], target[k0:]
 
-        # Handle simple situation with no cycle.
-        if k1 <= n_samples:
-            return self.data_input[k0:k1], self.data_target[k0:k1]
+        # Ensure our data chunk can store the full minibatch being requested.
+        assert k1 - k0 <= len(input)
 
-        # Build minibatch.
-        rval_input = numpy.zeros((minibatch_size, self.data_input.shape[1]),
-                                 dtype=self.data_input.dtype)
-        rval_target = numpy.zeros((minibatch_size, self.data_target.shape[1]),
-                                  dtype=self.data_target.dtype)
-        start_minibatch = 0
-        start_data = k0
-        n_left = minibatch_size
-        while n_left > 0:
-            #print 'start_minibatch = %s' % start_minibatch
-            #print 'start_data = %s' % start_data
-            n_to_add = min(n_left, n_samples - start_data)
-            rval_input[start_minibatch:start_minibatch + n_to_add] = (
-                            self.data_input[start_data:start_data + n_to_add])
-            rval_target[start_minibatch:start_minibatch + n_to_add] = (
-                            self.data_target[start_data:start_data + n_to_add])
-            n_left -= n_to_add
-            start_minibatch += n_to_add
-            start_data = (start_data + n_to_add) % n_samples
-        return rval_input, rval_target
+        # Ensure we are not trying to go back in time.
+        assert k0 >= self.online_chunk[0]
+
+        if k1 > self.online_chunk[1]:
+            # Need to retrieve more data from iterator.
+            # First copy the data already available.
+            start = k0 - self.online_chunk[0]
+            size = len(input) - start
+            for d in input, target:
+                d[0:size] = d[start:start + size].copy()
+            # Then retrieve more data.
+            for i, sample in enumerate(islice(self.data_iter, start)):
+                input[size + i] = sample[0]
+                target[size + i] = sample[1]
+            # And update online chunk info.
+            self.online_chunk[0] = k0
+            self.online_chunk[1] = k0 + len(input)
+
+        start = k0 - self.online_chunk[0]
+        end = k1 - self.online_chunk[0]
+        return input[start:end], target[start:end]
 
     def make_cost(self, k0, k1):
         """
@@ -256,7 +275,7 @@ def get_data_f3(d):
         yield as_array(x, y)
 
 
-def get_model(spec, data):
+def get_model(spec, **args):
     """
     Return model given by `spec`.
 
@@ -267,6 +286,8 @@ def get_model(spec, data):
     transfer function of the output layer is `identity`. These may be changed
     by specifying the transfer function within parenthesis, for instance:
         3-5-6(sigmoid)-3(identity)-1(sigmoid)
+
+    :param args: Arguments forwarded to ModelInterface.
     """
     def parse_size(s, default_transfer_function):
         """
@@ -319,7 +340,7 @@ def get_model(spec, data):
             task_spec=nnet.task_spec,
             input=nnet.input,
             params=params)
-    ui = ModelInterface(model=model, data=data)
+    ui = ModelInterface(model=model, **args)
     return ui
 
 
@@ -330,7 +351,7 @@ def get_rng(seed=None):
     return numpy.random.RandomState(seed)
 
 
-def minimize(model, data):
+def minimize(model):
     best = [None]
     count = [0]
     errors = []
@@ -338,9 +359,9 @@ def minimize(model, data):
     def callback(param_values, lambda_t):
         count[0] += 1
         cost = model.all_costs(param_values)
-        print '%s: %s' % (count[0], cost['mse'])
+        print '%s: %s' % (count[0], ', '.join('%.4f' % c['mse'] for c in cost))
         best[0] = param_values
-        errors.append(cost['mse'])
+        errors.append(cost[0]['mse'])
         lambdas.append(lambda_t)
     leon_ncg_python(
             make_f=model.make_cost,
@@ -350,8 +371,8 @@ def minimize(model, data):
             maxiter=1000,
             #direction='polak-ribiere',
             direction='hestenes-stiefel',
-            minibatch_size=100,
-            minibatch_offset=30,
+            minibatch_size=None,
+            minibatch_offset=None,
             )
     return best[0], errors, lambdas
 
@@ -363,23 +384,25 @@ def plot(model, params, errors, lambdas):
         - training error over time
         - evolution of lambda_t
     """
-    to_plot = []
     model.fill_params(params)
-    model_output = model.compute_output(model.data_input,
-                                        model.data_target)
+    # Model output (currently disabled).
+    if False:
+        to_plot = []
+        model_output = model.compute_output(model.data_input,
+                                            model.data_target)
 
-    for input, target, output in izip(model.data_input,
-                                      model.data_target,
-                                      model_output):
-        to_plot.append([input[0], target[0], output[0]])
+        for input, target, output in izip(model.data_input,
+                                          model.data_target,
+                                          model_output):
+            to_plot.append([input[0], target[0], output[0]])
 
-    to_plot = numpy.array(sorted(to_plot))
+        to_plot = numpy.array(sorted(to_plot))
 
-    # Output.
-    fig = pyplot.figure()
-    pyplot.plot(to_plot[:, 0], to_plot[:, 1], label='true')
-    pyplot.plot(to_plot[:, 0], to_plot[:, 2], label='model')
-    pyplot.legend()
+        # Output.
+        fig = pyplot.figure()
+        pyplot.plot(to_plot[:, 0], to_plot[:, 1], label='true')
+        pyplot.plot(to_plot[:, 0], to_plot[:, 2], label='model')
+        pyplot.legend()
 
     # Training error.
     fig = pyplot.figure()
@@ -399,9 +422,11 @@ def plot(model, params, errors, lambdas):
 
 # TODO n_train=1000 WORKS MUCH BETTER THAN n_train=999 => SUSPICIOUS
 def test(data_spec='f3(1000)', model_spec='1000-1', n_train=1000):
-    data = list(islice(get_data(data_spec), n_train))
-    model = get_model(spec=model_spec, data=data)
-    params, errors, lambdas = minimize(model, data)
+    data_iter = get_data(data_spec)
+    model = get_model(spec=model_spec, data_iter=data_iter,
+                      n_offline_train=1000,
+                      n_test=1000)
+    params, errors, lambdas = minimize(model)
     plot(model, params, errors, lambdas)
 
 
