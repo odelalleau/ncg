@@ -154,6 +154,7 @@ class ModelInterface(object):
             # Easy case, get offline training data.
             # Currently this should only happen when k0 == 0.
             assert k0 == 0
+            #print '%s -> %s' % (input[k0][0], input[-1][0])
             return input[k0:], target[k0:]
 
         # Ensure our data chunk can store the full minibatch being requested.
@@ -170,7 +171,7 @@ class ModelInterface(object):
             for d in input, target:
                 d[0:size] = d[start:start + size].copy()
             # Then retrieve more data.
-            print 'Retrieving %s more samples' % start
+            #print 'Retrieving %s more samples' % start
             for i, sample in enumerate(islice(self.data_iter, start)):
                 input[size + i] = sample[0]
                 target[size + i] = sample[1]
@@ -180,6 +181,7 @@ class ModelInterface(object):
 
         start = k0 - self.online_chunk[0]
         end = k1 - self.online_chunk[0]
+        #print '%s -> %s' % (input[start][0], input[end - 1][0])
         return input[start:end], target[start:end]
 
     def make_cost(self, k0, k1):
@@ -267,7 +269,7 @@ def get_data_f3(d):
     epsilon ~ N(0, 0.1)
     """
     x_range = [-3, 3]
-    rng = get_rng()
+    rng = get_rng(seed=8948394)
     w = numpy.arange(1, d + 1) / float(d)
     b = 1.
     while True:
@@ -275,6 +277,18 @@ def get_data_f3(d):
         epsilon = rng.normal(loc=0, scale=0.1)
         y = numpy.dot(w, x) + b + epsilon
         yield as_array(x, y)
+
+
+def get_data_f4():
+    """
+    f4(x) = x
+
+    x increases by 1 at each sample, starting at 0.
+    """
+    x = 0.
+    while True:
+        yield as_array([x], [x / 1000])
+        x += 1
 
 
 def get_model(spec, **args):
@@ -335,7 +349,7 @@ def get_model(spec, **args):
     assert nnet.output_is_layer == -1
 
     # Gather list of all parameters.
-    params = nnet.weights + nnet.biases
+    params = nnet.params
 
     # Expose model interface.
     model = miniml.utility.Storage(
@@ -361,7 +375,9 @@ def minimize(model, **args):
     def callback(param_values, lambda_t):
         count[0] += 1
         cost = model.all_costs(param_values)
-        print '%s: %s' % (count[0], ', '.join('%.4f' % c['mse'] for c in cost))
+        print '%s: %s (%s)' % (count[0],
+                               ', '.join('%.4f' % c['mse'] for c in cost),
+                               param_values[0:3])
         best[0] = param_values
         errors.append([c['mse'] for c in cost])
         lambdas.append(lambda_t)
@@ -417,6 +433,9 @@ def plot(results, experiments):
         # Offline training error.
         fig = pyplot.figure(1)
         pyplot.plot(x_vals, [e[0] for e in errors], label=exp_name)
+        for xv, lamb in izip(x_vals, lambdas):
+            if lamb == 0:
+                pyplot.axvline(x=xv)
 
         # Test error.
         fig = pyplot.figure(2)
@@ -457,17 +476,37 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
             'batch': dict(minibatch_size=None,
                           minibatch_offset=None,
                           maxiter=max_samples / n_offline_train),
+            'online_1000_1': dict(minibatch_size=1000,
+                                  minibatch_offset=1,
+                                  maxiter=max_samples / 1000),
+            'online_1000_10': dict(minibatch_size=1000,
+                                   minibatch_offset=10,
+                                   maxiter=max_samples / 1000),
+            'online_1000_100': dict(minibatch_size=1000,
+                                    minibatch_offset=100,
+                                    maxiter=max_samples / 1000),
             'online_1000_1000': dict(minibatch_size=1000,
                                      minibatch_offset=1000,
                                      maxiter=max_samples / 1000),
+            'online_10000_1': dict(minibatch_size=10000,
+                                   minibatch_offset=1,
+                                   maxiter=max_samples / 10000),
+            'online_10000_10': dict(minibatch_size=10000,
+                                    minibatch_offset=10,
+                                    maxiter=max_samples / 10000),
             'online_10000_10000': dict(minibatch_size=10000,
                                        minibatch_offset=10000,
                                        maxiter=max_samples / 10000),
             }
     experiments = dict((k, experiments[k]) for k in (
         'batch',
-        'online_1000_1000',
-        'online_10000_10000',
+        #'online_1000_1',
+        #'online_1000_10',
+        #'online_1000_100',
+        #'online_1000_1000',
+        #'online_10000_1',
+        #'online_10000_10',
+        #'online_10000_10000',
         ))
     for exp_name, exp_args in sorted(experiments.iteritems()):
         data_iter = get_data(data_spec)
