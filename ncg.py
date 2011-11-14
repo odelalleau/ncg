@@ -346,6 +346,8 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
             lambda_t = 0
         if lambda_t == 0:
             print '*** RESTART ***'
+        else:
+            print 'lambda_t = %s' % lambda_t
         d_t = -g_tp1 + lambda_t * d_t
         g_t = g_tp1
         w_t = w_tp1
