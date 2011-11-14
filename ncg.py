@@ -184,6 +184,7 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
               direction='hestenes-stiefel',
               minibatch_size=None,
               minibatch_offset=None,
+              restart_every=0,
               ):
     """Minimize a function using a nonlinear conjugate gradient algorithm.
 
@@ -216,8 +217,10 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
     Size of each minibatch. Use None for batch learning.
     minibatch_offset : int
     Shift of the minibatch. Use None to use the minibatch size (i.e. no
-    overlap at all if the minibatch size is less than half of the whole
-    dataset size).
+    overlap at all).
+    restart_every : int
+    Force restart every this number of iterations. If <= 0, then never
+    force a restart.
 
     Returns
     -------
@@ -339,6 +342,10 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
             lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1) / numpy.dot(h_t_minus_g_t, d_t))
         else:
             raise NotImplementedError(direction)
+        if restart_every > 0 and (t + 1) % restart_every == 0:
+            lambda_t = 0
+        if lambda_t == 0:
+            print '*** RESTART ***'
         d_t = -g_tp1 + lambda_t * d_t
         g_t = g_tp1
         w_t = w_tp1
