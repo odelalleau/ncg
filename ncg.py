@@ -86,7 +86,6 @@ def leon_ncg_theano(cost_fn, x0s, args=(), gtol=1e-5,
     def myfprime(*nw_x0s):
         gx0s = TT.grad(out, global_x0s, keep_wrt_type=True)
         rval = theano.clone(gx0s, replace=dict(zip(global_x0s, nw_x0s)))
-        #import ipdb; ipdb.set_trace()
         #rval = TT.grad(cost_fn(*nw_x0s), nw_x0s)
         return [x for x in rval]
 
@@ -106,7 +105,6 @@ def leon_ncg_theano(cost_fn, x0s, args=(), gtol=1e-5,
                 gnorm = TT.maximum(gnorm, dx)
 
         pks  = rest[n_elems*2:]
-        #import ipdb; ipdb.set_trace()
         deltak = sum((gfk * gfk).sum() for gfk in gfks)
 
         old_fval_backup = old_fval
@@ -185,6 +183,7 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
               minibatch_size=None,
               minibatch_offset=None,
               restart_every=0,
+              normalize=False,
               ):
     """Minimize a function using a nonlinear conjugate gradient algorithm.
 
@@ -221,6 +220,10 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
     restart_every : int
     Force restart every this number of iterations. If <= 0, then never
     force a restart.
+    normalize: bool
+    If True, then use the normalized gradient instead of the gradient
+    itself to find the next search direction, and always normalize the
+    search direction.
 
     Returns
     -------
@@ -287,7 +290,10 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
     if retall:
         allvecs = [w_t]
     warnflag = 0
-    d_t = -g_t
+    if normalize:
+        d_t = -g_t / numpy.linalg.norm(g_t)
+    else:
+        d_t = -g_t
     gnorm = vecnorm(g_t, ord=norm)
 
     while (gnorm > gtol) and (t < maxiter):
@@ -329,6 +335,10 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
 
         # Compute derivative on new minibatch.
         g_tp1 = myfprime(w_tp1)
+        if normalize:
+            g_tp1_for_dt = g_tp1 / numpy.linalg.norm(g_tp1)
+        else:
+            g_tp1_for_dt = g_tp1
 
         if retall:
             allvecs.append(w_tp1)
@@ -336,10 +346,10 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
         if direction == 'polak-ribiere':
             # Polak-Ribiere.
             delta_t = numpy.dot(g_t, g_t)
-            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1) / delta_t)
+            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1_for_dt) / delta_t)
         elif direction == 'hestenes-stiefel':
             # Hestenes-Stiefel.
-            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1) / numpy.dot(h_t_minus_g_t, d_t))
+            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1_for_dt) / numpy.dot(h_t_minus_g_t, d_t))
         else:
             raise NotImplementedError(direction)
         if restart_every > 0 and (t + 1) % restart_every == 0:
@@ -348,7 +358,9 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
             print '*** RESTART ***'
         else:
             print 'lambda_t = %s' % lambda_t
-        d_t = -g_tp1 + lambda_t * d_t
+        d_t = -g_tp1_for_dt + lambda_t * d_t
+        if normalize:
+            d_t /= numpy.linalg.norm(d_t)
         g_t = g_tp1
         w_t = w_tp1
         gnorm = vecnorm(g_t, ord=norm)
