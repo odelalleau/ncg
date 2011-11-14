@@ -420,6 +420,19 @@ def plot(results, experiments):
         pyplot.plot(to_plot[:, 0], to_plot[:, 2], label='model')
         pyplot.legend()
 
+    # Find maximum number of samples.
+    max_n_samples = 0
+
+    for exp_name, model, params, errors, lambdas, minibatch_size in results:
+        if minibatch_size is None:
+            # Offline batch setting.
+            minibatch_size = len(model.data_input['offline_train'])
+        max_n_samples = max(max_n_samples, len(errors) * minibatch_size)
+
+    def complete(lst, n):
+        if len(lst) < n:
+            lst += [lst[-1]] * (n - len(lst))
+
     for exp_name, model, params, errors, lambdas, minibatch_size in results:
 
         model.fill_params(params)
@@ -427,12 +440,14 @@ def plot(results, experiments):
         if minibatch_size is None:
             # Offline batch setting.
             minibatch_size = len(model.data_input['offline_train'])
-        x_vals = range(minibatch_size, minibatch_size * (len(errors) + 1),
+        x_vals = range(minibatch_size, max_n_samples + 1,
                        minibatch_size)
 
         # Offline training error.
         fig = pyplot.figure(1)
-        pyplot.plot(x_vals, [e[0] for e in errors], label=exp_name)
+        to_plot = [e[0] for e in errors]
+        complete(to_plot, len(x_vals))
+        pyplot.plot(x_vals, to_plot, label=exp_name)
         if False:
             # Debug indicators of restarts.
             for xv, lamb in izip(x_vals, lambdas):
@@ -441,11 +456,13 @@ def plot(results, experiments):
 
         # Test error.
         fig = pyplot.figure(2)
-        pyplot.plot(x_vals, [e[1] for e in errors], label=exp_name)
+        to_plot = [e[1] for e in errors]
+        complete(to_plot, len(x_vals))
+        pyplot.plot(x_vals, to_plot, label=exp_name)
 
         # Evolution of lambda_t.
         fig = pyplot.figure(3)
-        pyplot.plot(x_vals, lambdas, label=exp_name)
+        pyplot.plot(x_vals[0:len(lambdas)], lambdas, label=exp_name)
 
     # Offline training error.
     pyplot.figure(1)
@@ -478,6 +495,25 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
             'batch': dict(minibatch_size=None,
                           minibatch_offset=None,
                           maxiter=max_samples / n_offline_train),
+            'batch_100_normalize': dict(minibatch_size=None,
+                                        minibatch_offset=None,
+                                        maxiter=max_samples / 100,
+                                        n_offline_train=100,
+                                        normalize=True),
+            'batch_1000_normalize': dict(minibatch_size=None,
+                                         minibatch_offset=None,
+                                         maxiter=max_samples / 1000,
+                                         n_offline_train=1000,
+                                         normalize=True),
+            'batch_10000_normalize': dict(minibatch_size=None,
+                                          minibatch_offset=None,
+                                          maxiter=max_samples / 10000,
+                                          n_offline_train=10000,
+                                          normalize=True),
+            'batch_normalize': dict(minibatch_size=None,
+                                    minibatch_offset=None,
+                                    maxiter=max_samples / n_offline_train,
+                                    normalize=True),
             'batch_restart': dict(minibatch_size=None,
                                   minibatch_offset=None,
                                   maxiter=max_samples / n_offline_train,
@@ -491,12 +527,20 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
             'online_1000_100': dict(minibatch_size=1000,
                                     minibatch_offset=100,
                                     maxiter=max_samples / 1000),
+            'online_1000_100_normalize': dict(minibatch_size=1000,
+                                              minibatch_offset=100,
+                                              maxiter=max_samples / 1000,
+                                              normalize=True),
             'online_1000_1000': dict(minibatch_size=1000,
                                      minibatch_offset=1000,
                                      maxiter=max_samples / 1000),
             'online_10000_1': dict(minibatch_size=10000,
                                    minibatch_offset=1,
                                    maxiter=max_samples / 10000),
+            'online_10000_1_normalize': dict(minibatch_size=10000,
+                                             minibatch_offset=1,
+                                             maxiter=max_samples / 10000,
+                                             normalize=True),
             'online_10000_10': dict(minibatch_size=10000,
                                     minibatch_offset=10,
                                     maxiter=max_samples / 10000),
@@ -510,6 +554,10 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
             'online_10000_1000': dict(minibatch_size=10000,
                                       minibatch_offset=1000,
                                       maxiter=max_samples / 10000),
+            'online_10000_1000_normalize': dict(minibatch_size=10000,
+                                                minibatch_offset=1000,
+                                                maxiter=max_samples / 10000,
+                                                normalize=True),
             'online_10000_1000_restart': dict(minibatch_size=10000,
                                              minibatch_offset=1000,
                                              maxiter=max_samples / 10000,
@@ -517,6 +565,10 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
             'online_10000_10000': dict(minibatch_size=10000,
                                        minibatch_offset=10000,
                                        maxiter=max_samples / 10000),
+            'online_10000_10000_normalize': dict(minibatch_size=10000,
+                                                 minibatch_offset=10000,
+                                                 maxiter=max_samples / 10000,
+                                                 normalize=True),
             'online_10000_10000_restart': dict(minibatch_size=10000,
                                                minibatch_offset=10000,
                                                maxiter=max_samples / 10000,
@@ -524,24 +576,38 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
             }
     experiments = dict((k, experiments[k]) for k in (
         #'batch',
+        'batch_100_normalize',
+        'batch_1000_normalize',
+        #'batch_10000_normalize',
+        #'batch_normalize',
         #'batch_restart',
         #'online_1000_1',
         #'online_1000_10',
         #'online_1000_100',
+        #'online_1000_100_normalize',
         #'online_1000_1000',
-        'online_10000_1',
-        'online_10000_10',
-        'online_10000_100',
+        #'online_10000_1',
+        #'online_10000_1_normalize',
+        #'online_10000_10',
+        #'online_10000_100',
         #'online_10000_100_restart',
-        'online_10000_1000',
+        #'online_10000_1000',
+        #'online_10000_1000_normalize',
         #'online_10000_1000_restart',
-        'online_10000_10000',
+        #'online_10000_10000',
+        #'online_10000_10000_normalize',
         #'online_10000_10000_restart',
         ))
     for exp_name, exp_args in sorted(experiments.iteritems()):
         data_iter = get_data(data_spec)
+        if 'n_offline_train' in exp_args:
+            n_off = exp_args['n_offline_train']
+            exp_args = exp_args.copy()
+            del exp_args['n_offline_train']
+        else:
+            n_off = n_offline_train
         model = get_model(spec=model_spec, data_iter=data_iter,
-                          n_offline_train=n_offline_train,
+                          n_offline_train=n_off,
                           n_test=n_test)
         results.append([exp_name, model] + list(minimize(model, **exp_args)))
     plot(results, experiments)
