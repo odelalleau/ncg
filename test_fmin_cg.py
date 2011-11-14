@@ -147,6 +147,7 @@ class ModelInterface(object):
 
         If k1 is None then we use offline training data.
         """
+        print 'get_minibatch(%s, %s)' % (k0, k1)
         input = self.data_input['online_train']
         target = self.data_target['online_train']
         if k1 is None:
@@ -169,6 +170,7 @@ class ModelInterface(object):
             for d in input, target:
                 d[0:size] = d[start:start + size].copy()
             # Then retrieve more data.
+            print 'Retrieving %s more samples' % start
             for i, sample in enumerate(islice(self.data_iter, start)):
                 input[size + i] = sample[0]
                 target[size + i] = sample[1]
@@ -351,7 +353,7 @@ def get_rng(seed=None):
     return numpy.random.RandomState(seed)
 
 
-def minimize(model):
+def minimize(model, **args):
     best = [None]
     count = [0]
     errors = []
@@ -361,30 +363,28 @@ def minimize(model):
         cost = model.all_costs(param_values)
         print '%s: %s' % (count[0], ', '.join('%.4f' % c['mse'] for c in cost))
         best[0] = param_values
-        errors.append(cost[0]['mse'])
+        errors.append([c['mse'] for c in cost])
         lambdas.append(lambda_t)
     leon_ncg_python(
             make_f=model.make_cost,
             w_0=model.params_to_vec(),
             make_fprime=model.make_grad,
             callback=callback,
-            maxiter=1000,
             #direction='polak-ribiere',
             direction='hestenes-stiefel',
-            minibatch_size=None,
-            minibatch_offset=None,
+            **args
             )
-    return best[0], errors, lambdas
+    return best[0], errors, lambdas, args['minibatch_size']
 
 
-def plot(model, params, errors, lambdas):
+def plot(results, experiments):
     """
     Plot:
         - true data vs. prediction
-        - training error over time
+        - training and test error over time
         - evolution of lambda_t
     """
-    model.fill_params(params)
+    raw_input('Press Enter to plot figures')
     # Model output (currently disabled).
     if False:
         to_plot = []
@@ -404,30 +404,78 @@ def plot(model, params, errors, lambdas):
         pyplot.plot(to_plot[:, 0], to_plot[:, 2], label='model')
         pyplot.legend()
 
-    # Training error.
-    fig = pyplot.figure()
-    pyplot.plot(errors)
-    pyplot.xlabel('time')
-    pyplot.ylabel('training error')
+    for exp_name, model, params, errors, lambdas, minibatch_size in results:
 
-    # Evolution of lambda_t.
-    fig = pyplot.figure()
-    pyplot.plot(lambdas)
+        model.fill_params(params)
+        # Figure out x axis (number of samples visited).
+        if minibatch_size is None:
+            # Offline batch setting.
+            minibatch_size = len(model.data_input['offline_train'])
+        x_vals = range(minibatch_size, minibatch_size * (len(errors) + 1),
+                       minibatch_size)
+
+        # Offline training error.
+        fig = pyplot.figure(1)
+        pyplot.plot(x_vals, [e[0] for e in errors], label=exp_name)
+
+        # Test error.
+        fig = pyplot.figure(2)
+        pyplot.plot(x_vals, [e[1] for e in errors], label=exp_name)
+
+        # Evolution of lambda_t.
+        fig = pyplot.figure(3)
+        pyplot.plot(x_vals, lambdas, label=exp_name)
+
+    # Offline training error.
+    pyplot.figure(1)
+    pyplot.yscale('log')
+    pyplot.xlabel('n_samples')
+    pyplot.ylabel('offline training error')
+    pyplot.legend()
+
+    # Test error.
+    pyplot.figure(2)
+    pyplot.yscale('log')
+    pyplot.xlabel('n_samples')
+    pyplot.ylabel('test error')
+    pyplot.legend()
+
+    # Lambda.
+    pyplot.figure(3)
     pyplot.xlabel('k')
     pyplot.ylabel('lambda_t')
+    pyplot.legend()
 
     # Show plots.
     pyplot.show()
 
 
-# TODO n_train=1000 WORKS MUCH BETTER THAN n_train=999 => SUSPICIOUS
-def test(data_spec='f3(1000)', model_spec='1000-1', n_train=1000):
-    data_iter = get_data(data_spec)
-    model = get_model(spec=model_spec, data_iter=data_iter,
-                      n_offline_train=1000,
-                      n_test=1000)
-    params, errors, lambdas = minimize(model)
-    plot(model, params, errors, lambdas)
+def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_test=1000):
+    results = []
+    max_samples = 100000
+    experiments = {
+            'batch': dict(minibatch_size=None,
+                          minibatch_offset=None,
+                          maxiter=max_samples / n_offline_train),
+            'online_1000_1000': dict(minibatch_size=1000,
+                                     minibatch_offset=1000,
+                                     maxiter=max_samples / 1000),
+            'online_10000_10000': dict(minibatch_size=10000,
+                                       minibatch_offset=10000,
+                                       maxiter=max_samples / 10000),
+            }
+    experiments = dict((k, experiments[k]) for k in (
+        'batch',
+        'online_1000_1000',
+        'online_10000_10000',
+        ))
+    for exp_name, exp_args in sorted(experiments.iteritems()):
+        data_iter = get_data(data_spec)
+        model = get_model(spec=model_spec, data_iter=data_iter,
+                          n_offline_train=n_offline_train,
+                          n_test=n_test)
+        results.append([exp_name, model] + list(minimize(model, **exp_args)))
+    plot(results, experiments)
 
 
 def test_ncg_2(profile=True, pydot_print=True):
