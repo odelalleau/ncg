@@ -433,9 +433,11 @@ def plot(results, experiments):
         # Offline training error.
         fig = pyplot.figure(1)
         pyplot.plot(x_vals, [e[0] for e in errors], label=exp_name)
-        for xv, lamb in izip(x_vals, lambdas):
-            if lamb == 0:
-                pyplot.axvline(x=xv)
+        if False:
+            # Debug indicators of restarts.
+            for xv, lamb in izip(x_vals, lambdas):
+                if lamb == 0:
+                    pyplot.axvline(x=xv)
 
         # Test error.
         fig = pyplot.figure(2)
@@ -471,11 +473,15 @@ def plot(results, experiments):
 
 def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_test=1000):
     results = []
-    max_samples = 100000
+    max_samples = 300000
     experiments = {
             'batch': dict(minibatch_size=None,
                           minibatch_offset=None,
                           maxiter=max_samples / n_offline_train),
+            'batch_restart': dict(minibatch_size=None,
+                                  minibatch_offset=None,
+                                  maxiter=max_samples / n_offline_train,
+                                  restart_every=1),
             'online_1000_1': dict(minibatch_size=1000,
                                   minibatch_offset=1,
                                   maxiter=max_samples / 1000),
@@ -494,19 +500,43 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
             'online_10000_10': dict(minibatch_size=10000,
                                     minibatch_offset=10,
                                     maxiter=max_samples / 10000),
+            'online_10000_100': dict(minibatch_size=10000,
+                                     minibatch_offset=100,
+                                     maxiter=max_samples / 10000),
+            'online_10000_100_restart': dict(minibatch_size=10000,
+                                             minibatch_offset=100,
+                                             maxiter=max_samples / 10000,
+                                             restart_every=1),
+            'online_10000_1000': dict(minibatch_size=10000,
+                                      minibatch_offset=1000,
+                                      maxiter=max_samples / 10000),
+            'online_10000_1000_restart': dict(minibatch_size=10000,
+                                             minibatch_offset=1000,
+                                             maxiter=max_samples / 10000,
+                                             restart_every=1),
             'online_10000_10000': dict(minibatch_size=10000,
                                        minibatch_offset=10000,
                                        maxiter=max_samples / 10000),
+            'online_10000_10000_restart': dict(minibatch_size=10000,
+                                               minibatch_offset=10000,
+                                               maxiter=max_samples / 10000,
+                                               restart_every=1),
             }
     experiments = dict((k, experiments[k]) for k in (
-        'batch',
+        #'batch',
+        #'batch_restart',
         #'online_1000_1',
         #'online_1000_10',
         #'online_1000_100',
         #'online_1000_1000',
-        #'online_10000_1',
-        #'online_10000_10',
-        #'online_10000_10000',
+        'online_10000_1',
+        'online_10000_10',
+        'online_10000_100',
+        #'online_10000_100_restart',
+        'online_10000_1000',
+        #'online_10000_1000_restart',
+        'online_10000_10000',
+        #'online_10000_10000_restart',
         ))
     for exp_name, exp_args in sorted(experiments.iteritems()):
         data_iter = get_data(data_spec)
