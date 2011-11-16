@@ -605,15 +605,44 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
                                                          normalize=True,
                                                          restart_every=1),
             }
-    experiments = dict((k, experiments[k]) for k in (
-        #'batch',
+
+    def make_exp(spec):
+        # Return dictionary of options from an experiment's spec string.
+        params = spec.split('_')
+        normalize = 'normalize' in params
+        if 'restart' in params:
+            restart_every = 1
+        else:
+            restart_every = 0
+        batch_size = int(params[1])
+        maxiter = max_samples / batch_size
+        if params[0] == 'batch':
+            minibatch_size = None
+            minibatch_offset = None
+            n_off = batch_size
+        elif params[0] == 'online':
+            minibatch_size = batch_size
+            minibatch_offset = int(params[2])
+            n_off = n_offline_train
+        else:
+            raise NotImplementedError(params[0])
+        return dict(
+                minibatch_size=minibatch_size,
+                minibatch_offset=minibatch_offset,
+                maxiter=maxiter,
+                normalize=normalize,
+                restart_every=restart_every,
+                n_offline_train=n_off)
+
+    experiments = dict((k, make_exp(k)) for k in (
         #'batch_100_normalize',
         #'batch_1000_normalize',
         #'batch_1010_normalize',
         #'batch_2000_normalize',
+        'batch_10000',
         #'batch_10000_normalize',
-        #'batch_normalize',
-        #'batch_restart',
+        #'batch_10000_normalize',
+        #'batch_10000_restart',
         #'online_1000_1_normalize',
         #'online_1000_10_normalize',
         #'online_1000_100',
@@ -626,23 +655,20 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         #'online_10000_10',
         #'online_10000_10_normalize',
         #'online_10000_100',
-        'online_10000_100_normalize',
-        'online_10000_100_normalize_restart',
+        #'online_10000_100_normalize',
+        #'online_10000_100_normalize_restart',
         #'online_10000_1000',
         #'online_10000_1000_normalize',
         #'online_10000_1000_restart',
         #'online_10000_10000',
-        'online_10000_10000_normalize',
-        'online_10000_10000_normalize_restart',
+        #'online_10000_10000_normalize',
+        #'online_10000_10000_normalize_restart',
         ))
     for exp_name, exp_args in sorted(experiments.iteritems()):
         data_iter = get_data(data_spec)
-        if 'n_offline_train' in exp_args:
-            n_off = exp_args['n_offline_train']
-            exp_args = exp_args.copy()
-            del exp_args['n_offline_train']
-        else:
-            n_off = n_offline_train
+        n_off = exp_args['n_offline_train']
+        exp_args = exp_args.copy()
+        del exp_args['n_offline_train']
         model = get_model(spec=model_spec, data_iter=data_iter,
                           n_offline_train=n_off,
                           n_test=n_test)
