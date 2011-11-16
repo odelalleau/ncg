@@ -610,6 +610,7 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         # Return dictionary of options from an experiment's spec string.
         params = spec.split('_')
         normalize = 'normalize' in params
+        constrain_lambda = 'neglambda' not in params
         if 'restart' in params:
             restart_every = 1
         else:
@@ -632,6 +633,7 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
                 maxiter=maxiter,
                 normalize=normalize,
                 restart_every=restart_every,
+                constrain_lambda=constrain_lambda,
                 n_offline_train=n_off)
 
     experiments = dict((k, make_exp(k)) for k in (
@@ -639,16 +641,22 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         #'batch_1000_normalize',
         #'batch_1010_normalize',
         #'batch_2000_normalize',
-        'batch_10000',
+        #'batch_2000_normalize_neglambda',
+        #'batch_5000_normalize',
+        #'batch_5000_normalize_neglambda',
+        #'batch_10000',
         #'batch_10000_normalize',
-        #'batch_10000_normalize',
+        #'batch_10000_normalize_neglambda',
         #'batch_10000_restart',
         #'online_1000_1_normalize',
         #'online_1000_10_normalize',
+        #'online_1000_10_normalize_neglambda',
         #'online_1000_100',
         #'online_1000_100_normalize',
+        #'online_1000_100_normalize_neglambda',
         #'online_1000_1000_normalize',
-        #'online_1000_1000_normalize',
+        'online_1000_1000_normalize',
+        #'online_1000_1000_normalize_neglambda',
         #'online_1000_1000_normalize_restart',
         #'online_10000_1',
         #'online_10000_1_normalize',
@@ -656,12 +664,15 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         #'online_10000_10_normalize',
         #'online_10000_100',
         #'online_10000_100_normalize',
+        #'online_10000_100_normalize_neglambda',
         #'online_10000_100_normalize_restart',
         #'online_10000_1000',
         #'online_10000_1000_normalize',
+        #'online_10000_1000_normalize_neglambda',
         #'online_10000_1000_restart',
         #'online_10000_10000',
         #'online_10000_10000_normalize',
+        #'online_10000_10000_normalize_neglambda',
         #'online_10000_10000_normalize_restart',
         ))
     for exp_name, exp_args in sorted(experiments.iteritems()):
