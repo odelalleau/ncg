@@ -289,8 +289,6 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
     t = 0
     N = len(w_0)
     w_t = w_0
-    old_fval = f(w_t)
-    old_old_fval = old_fval + 5000
 
     if retall:
         allvecs = [w_t]
@@ -300,9 +298,18 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
     else:
         d_t = -g_t
     gnorm = vecnorm(g_t, ord=norm)
+    w_t_previous = None
 
     while (gnorm > gtol) and (t < maxiter):
-        # These values are modified by the line search, even if it fails
+        #print '||g_t|| = %s' % numpy.linalg.norm(g_t)
+        # Since the function changes at each iteration, we cannot re-use
+        # previous function values.
+        old_fval = f(w_t)
+        if w_t_previous is None:
+            old_old_fval = old_fval + 5000
+        else:
+            old_old_fval = f(w_t_previous)
+        # These values are modified by the line search, even if it fails.
         old_fval_backup = old_fval
         old_old_fval_backup = old_old_fval
 
@@ -310,14 +317,17 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
                  line_search_wolfe1(f, myfprime, w_t, d_t, g_t, old_fval,
                                   old_old_fval, c2=0.4)
         if alpha_t is None: # line search failed -- use different one.
+            print '*********************************** LINE SEARCH FAILURE *********************************'
             alpha_t, fc, gc, old_fval, old_old_fval, h_t = \
                      line_search_wolfe2(f, myfprime, w_t, d_t, g_t,
                                         old_fval_backup, old_old_fval_backup)
+            print '*********************************** %s *********************************' % alpha_t
             if alpha_t is None or alpha_t == 0:
                 # This line search also failed to find a better solution.
                 raise AssertionError()
                 warnflag = 2
                 break
+        print 'alpha_t = %s' % alpha_t
         # Update weights.
         w_tp1 = w_t + alpha_t * d_t
 
@@ -369,6 +379,7 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
         if normalize:
             d_t /= numpy.linalg.norm(d_t)
         g_t = g_tp1
+        w_t_previous = w_t
         w_t = w_tp1
         gnorm = vecnorm(g_t, ord=norm)
         if callback is not None:
