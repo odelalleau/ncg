@@ -184,6 +184,7 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
               minibatch_offset=None,
               restart_every=0,
               normalize=False,
+              constrain_lambda=True,
               ):
     """Minimize a function using a nonlinear conjugate gradient algorithm.
 
@@ -220,10 +221,14 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
     restart_every : int
     Force restart every this number of iterations. If <= 0, then never
     force a restart.
-    normalize: bool
+    normalize : bool
     If True, then use the normalized gradient instead of the gradient
     itself to find the next search direction, and always normalize the
     search direction.
+    constrain_lambda : bool
+    If True, then the `lambda_t` factor used to compute conjugate directions
+    is constrained to be non-negative (it is thus set to zero if the formula
+    given by `direction` computes a negative value).
 
     Returns
     -------
@@ -346,12 +351,14 @@ def leon_ncg_python(make_f, w_0, make_fprime=None, gtol=1e-5, norm=numpy.Inf,
         if direction == 'polak-ribiere':
             # Polak-Ribiere.
             delta_t = numpy.dot(g_t, g_t)
-            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1_for_dt) / delta_t)
+            lambda_t = numpy.dot(h_t_minus_g_t, g_tp1_for_dt) / delta_t
         elif direction == 'hestenes-stiefel':
             # Hestenes-Stiefel.
-            lambda_t = max(0, numpy.dot(h_t_minus_g_t, g_tp1_for_dt) / numpy.dot(h_t_minus_g_t, d_t))
+            lambda_t = numpy.dot(h_t_minus_g_t, g_tp1_for_dt) / numpy.dot(h_t_minus_g_t, d_t)
         else:
             raise NotImplementedError(direction)
+        if constrain_lambda and lambda_t < 0:
+            lambda_t = 0
         if restart_every > 0 and (t + 1) % restart_every == 0:
             lambda_t = 0
         if lambda_t == 0:
