@@ -10,7 +10,7 @@ __license__ = "BSD"
 __contact__ = "Olivier Delalleau <delallea@iro>"
 
 
-import math, sys, time
+import math, os, sys, time
 from itertools import islice, izip
 
 import ubi_mm
@@ -18,6 +18,8 @@ ubi_mm.init_ml(__file__)
 import ml
 import ml.util
 
+import dlt # Deep Learning Tutorials
+from dlt.logistic_sgd import load_data
 import miniml
 import numpy
 import scipy
@@ -34,7 +36,7 @@ class ModelInterface(object):
     Provides an interface with convenience functions for optimization.
     """
 
-    def __init__(self, model, data_iter, n_offline_train, n_test):
+    def __init__(self, model, data_iter, n_offline_train, n_test, task):
         self.model = model
         self.data_iter = data_iter
         params = self.model.params
@@ -77,8 +79,16 @@ class ModelInterface(object):
         for data_type in n_data:
             self.data_input[data_type] = numpy.zeros(
                     (n_data[data_type], input_size), dtype=config.floatX)
+            if task == 'classification':
+                target_dtype = 'int64'
+                target_shape = (n_data[data_type],)
+                assert target_size == 1
+            else:
+                assert task == 'regression'
+                target_dtype = config.floatX
+                target_shape = (n_data[data_type], target_size)
             self.data_target[data_type] = numpy.zeros(
-                    (n_data[data_type], target_size), dtype=config.floatX)
+                    target_shape, dtype=target_dtype)
             for i, sample in enumerate(data.get(data_type, [])):
                 input, target = sample
                 self.data_input[data_type][i] = input
@@ -291,6 +301,35 @@ def get_data_f4():
         x += 1
 
 
+def get_data_mnist(n_train, n_valid, n_test):
+    """
+    MNIST dataset.
+
+    Return first the validation samples, then the test samples, then keep
+    iterating on the training samples.
+    """
+    dlt_dir = dlt.__path__[0]
+    mnist_dataset = os.path.realpath(os.path.join(dlt_dir, '..', 'data',
+                                                  'mnist.pkl.gz'))
+    assert os.path.exists(mnist_dataset)
+    datasets = load_data(mnist_dataset)
+    get_data = []
+    idx = tensor.lscalar('idx')
+    for data in datasets:
+        get_data.append(theano.function([idx], [data[0][idx], data[1][idx]]))
+    # First yield validation and test samples.
+    for dataset_idx, n_samples in ((1, n_valid), (2, n_test)):
+        for i in xrange(n_samples):
+            sample = get_data[dataset_idx](i)
+            yield as_array(*sample)
+    # Then iterate on training samples.
+    i = 0
+    while True:
+        sample = get_data[0](i)
+        yield as_array(*sample)
+        i = (i + 1) % n_train
+
+
 def get_model(spec, **args):
     """
     Return model given by `spec`.
@@ -327,8 +366,9 @@ def get_model(spec, **args):
     hidden = map(parse_size, sizes[1:-1], ['tanh'] * (len(sizes) - 2))
     n_hidden = [h[0] for h in hidden]
     hidden_transfer = [h[1] for h in hidden]
+    task = args['task']
     nnet = miniml.component.nnet.NNet(
-            task='regression',
+            task=task,
             n_units=n_hidden + [n_outputs],
             transfer_functions=hidden_transfer + [output_transfer],
             hidden_transfer_function=None,
@@ -367,19 +407,25 @@ def get_rng(seed=None):
     return numpy.random.RandomState(seed)
 
 
-def minimize(model, **args):
+def minimize(model, task, **args):
     best = [None]
     count = [0]
     errors = []
     lambdas = []
+    if task == 'regression':
+        cost_name = 'mse'
+    elif task == 'classification':
+        cost_name = 'nll'
+    else:
+        raise NotImplementedError(task)
     def callback(param_values, lambda_t):
         count[0] += 1
         cost = model.all_costs(param_values)
         print '%s: %s (%s)' % (count[0],
-                               ', '.join('%.4f' % c['mse'] for c in cost),
+                               ', '.join('%.4f' % c[cost_name] for c in cost),
                                param_values[0:3])
         best[0] = param_values
-        errors.append([c['mse'] for c in cost])
+        errors.append([c[cost_name] for c in cost])
         lambdas.append(lambda_t)
     leon_ncg_python(
             make_f=model.make_cost,
@@ -488,7 +534,7 @@ def plot(results, experiments):
     pyplot.show()
 
 
-def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_test=1000):
+def test(data_spec='mnist(500,300,200)', model_spec='784-10-10', n_offline_train=500, n_test=500, task='classification'):
     results = []
     max_samples = 300000
     def make_exp(spec):
@@ -501,6 +547,7 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         else:
             restart_every = 0
         batch_size = int(params[1])
+        assert batch_size <= n_offline_train
         maxiter = max_samples / batch_size
         if params[0] == 'batch':
             minibatch_size = None
@@ -523,6 +570,7 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
 
     experiments = dict((k, make_exp(k)) for k in (
         #'batch_100_normalize',
+        'batch_500_normalize',
         #'batch_1000',
         #'batch_1000_normalize',
         #'batch_1010_normalize',
@@ -533,7 +581,7 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         #'batch_5000_normalize',
         #'batch_5000_normalize_neglambda',
         #'batch_10000',
-        'batch_10000_normalize',
+        #'batch_10000_normalize',
         #'batch_10000_normalize_neglambda',
         #'batch_10000_restart',
         #'online_1000_1_normalize',
@@ -546,7 +594,7 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         #'online_1000_1000_normalize_neglambda',
         #'online_1000_1000_normalize_restart',
         #'online_10000_1',
-        'online_10000_1_normalize',
+        #'online_10000_1_normalize',
         #'online_10000_10',
         #'online_10000_10_normalize',
         #'online_10000_100',
@@ -564,13 +612,14 @@ def test(data_spec='f3(1000)', model_spec='1000-1', n_offline_train=10000, n_tes
         ))
     for exp_name, exp_args in sorted(experiments.iteritems()):
         data_iter = get_data(data_spec)
-        n_off = exp_args['n_offline_train']
         exp_args = exp_args.copy()
-        del exp_args['n_offline_train']
+        n_off = exp_args.pop('n_offline_train')
         model = get_model(spec=model_spec, data_iter=data_iter,
                           n_offline_train=n_off,
-                          n_test=n_test)
-        results.append([exp_name, model] + list(minimize(model, **exp_args)))
+                          n_test=n_test,
+                          task=task)
+        results.append([exp_name, model] + list(minimize(
+                                        model=model, task=task, **exp_args)))
     plot(results, experiments)
 
 
