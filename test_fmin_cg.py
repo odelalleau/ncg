@@ -566,9 +566,8 @@ def plot(results, experiments, show_plots=True, expdir=None):
 
 
 def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)', model_spec='784-%(n_hidden)s-10', n_offline_train=500, n_test=100, n_hidden=10, task='classification',
-         experiments=None, show_plots=True, expdir=None):
+         experiments=None, show_plots=True, expdir=None, max_samples=300000):
     results = []
-    max_samples = 300000
     model_spec = model_spec % {'n_hidden': n_hidden}
     data_spec = data_spec % {'n_offline_train': n_offline_train,
                              'n_test': n_test}
