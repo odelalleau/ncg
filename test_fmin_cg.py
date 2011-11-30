@@ -410,22 +410,23 @@ def get_rng(seed=None):
 def minimize(model, task, **args):
     best = [None]
     count = [0]
-    errors = []
     lambdas = []
     if task == 'regression':
-        cost_name = 'mse'
+        cost_names = ['mse']
     elif task == 'classification':
-        cost_name = 'nll'
+        cost_names = ['nll', 'class_error']
     else:
         raise NotImplementedError(task)
+    errors = dict((c, []) for c in cost_names)
     def callback(param_values, lambda_t):
         count[0] += 1
         cost = model.all_costs(param_values)
         print '%s: %s (%s)' % (count[0],
-                               ', '.join('%.4f' % c[cost_name] for c in cost),
+                               ', '.join('%.4f' % c[cost_names[0]] for c in cost),
                                param_values[0:3])
         best[0] = param_values
-        errors.append([c[cost_name] for c in cost])
+        for cname in cost_names:
+            errors[cname].append([c[cname] for c in cost])
         lambdas.append(lambda_t)
     leon_ncg_python(
             make_f=model.make_cost,
@@ -479,7 +480,7 @@ def plot(results, experiments, show_plots=True, expdir=None):
         if minibatch_size is None:
             # Offline batch setting.
             minibatch_size = len(model.data_input['offline_train'])
-        max_n_samples = max(max_n_samples, len(errors) * minibatch_size)
+        max_n_samples = max(max_n_samples, len(errors[errors.keys()[0]]) * minibatch_size)
 
     def complete(lst, n):
         if len(lst) < n:
@@ -501,48 +502,58 @@ def plot(results, experiments, show_plots=True, expdir=None):
         x_vals = range(minibatch_size, max_n_samples + 1,
                        minibatch_size)
 
-        # Offline training error.
-        fig = get_figure(1)
-        to_plot = [e[0] for e in errors]
-        complete(to_plot, len(x_vals))
-        pyplot.plot(x_vals, to_plot, label=exp_name)
-        if False:
-            # Debug indicators of restarts.
-            for xv, lamb in izip(x_vals, lambdas):
-                if lamb == 0:
-                    pyplot.axvline(x=xv)
+        fig_idx = 1
+        for cname in sorted(errors):
+            # Offline training error.
+            fig = get_figure(fig_idx)
+            fig_idx += 1
+            to_plot = [e[0] for e in errors[cname]]
+            complete(to_plot, len(x_vals))
+            pyplot.plot(x_vals, to_plot, label=exp_name)
+            if False:
+                # Debug indicators of restarts.
+                for xv, lamb in izip(x_vals, lambdas):
+                    if lamb == 0:
+                        pyplot.axvline(x=xv)
 
-        # Test error.
-        fig = get_figure(2)
-        to_plot = [e[1] for e in errors]
-        complete(to_plot, len(x_vals))
-        pyplot.plot(x_vals, to_plot, label=exp_name)
+            # Test error.
+            fig = get_figure(fig_idx)
+            fig_idx += 1
+            to_plot = [e[1] for e in errors[cname]]
+            complete(to_plot, len(x_vals))
+            pyplot.plot(x_vals, to_plot, label=exp_name)
 
         # Evolution of lambda_t.
-        fig = get_figure(3)
+        fig = get_figure(fig_idx)
+        fig_idx += 1
         pyplot.plot(x_vals[0:len(lambdas)], lambdas, label=exp_name)
 
 
-    # Offline training error.
-    pyplot.figure(1)
-    pyplot.yscale('log')
-    pyplot.xlabel('n_samples')
-    pyplot.ylabel('offline training error')
-    pyplot.legend()
-    if expdir is not None:
-        pyplot.savefig(os.path.join(expdir, 'train_error.%s' % plot_ext))
+    fig_idx = 1
+    for cname in sorted(errors):
+        # Offline training error.
+        pyplot.figure(fig_idx)
+        fig_idx += 1
+        pyplot.yscale('log')
+        pyplot.xlabel('n_samples')
+        pyplot.ylabel('offline training %s' % cname)
+        pyplot.legend()
+        if expdir is not None:
+            pyplot.savefig(os.path.join(expdir, 'train_%s.%s' % (cname, plot_ext)))
 
-    # Test error.
-    pyplot.figure(2)
-    pyplot.yscale('log')
-    pyplot.xlabel('n_samples')
-    pyplot.ylabel('test error')
-    pyplot.legend()
-    if expdir is not None:
-        pyplot.savefig(os.path.join(expdir, 'test_error.%s' % plot_ext))
+        # Test error.
+        pyplot.figure(fig_idx)
+        fig_idx += 1
+        pyplot.yscale('log')
+        pyplot.xlabel('n_samples')
+        pyplot.ylabel('test %s' % cname)
+        pyplot.legend()
+        if expdir is not None:
+            pyplot.savefig(os.path.join(expdir, 'test_%s.%s' % (cname, plot_ext)))
 
     # Lambda.
-    pyplot.figure(3)
+    pyplot.figure(fig_idx)
+    fig_idx += 1
     pyplot.xlabel('k')
     pyplot.ylabel('lambda_t')
     pyplot.legend()
