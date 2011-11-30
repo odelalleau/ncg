@@ -772,10 +772,10 @@ def _main():
         key, val = arg.split('=')
         args[key] = ml.util.convert_from_string(val)
         if key == 'show_plots' and not args[key]:
-            global miniml
-            assert miniml is None
             matplotlib.use('pdf')
-            import miniml
+    global miniml
+    assert miniml is None
+    import miniml
     expdir = miniml.utility.make_expdir(state=args)
     test(expdir=expdir, **args)
     #test_ncg_2()
