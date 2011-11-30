@@ -17,7 +17,7 @@ from scipy.optimize.optimize import (
 
 import theano
 import theano.tensor as TT
-from theano.lazycond import ifelse
+from theano.ifelse import ifelse
 from theano.scan_module import until
 
 from pylearn2.optimization.ncg import linesearch_module as linesearch
