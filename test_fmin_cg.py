@@ -13,6 +13,7 @@ __contact__ = "Olivier Delalleau <delallea@iro>"
 import math, os, sys, time
 from itertools import islice, izip
 
+import matplotlib
 import ubi_mm
 ubi_mm.init_ml(__file__)
 import ml
@@ -20,10 +21,9 @@ import ml.util
 
 import dlt # Deep Learning Tutorials
 from dlt.logistic_sgd import load_data
-import miniml
+miniml = None # Lazy import
 import numpy
 import scipy
-from matplotlib import pyplot
 
 import theano
 from theano import config, tensor
@@ -373,7 +373,7 @@ def get_model(spec, **args):
             transfer_functions=hidden_transfer + [output_transfer],
             hidden_transfer_function=None,
             n_hidden=None, n_out=None)
-    
+
     # Properly initialize all weights.
     w0v = nnet.weights[0].get_value(borrow=True)
     n_hidden_1 = w0v.shape[1]
@@ -439,14 +439,20 @@ def minimize(model, task, **args):
     return best[0], errors, lambdas, args['minibatch_size']
 
 
-def plot(results, experiments):
+def plot(results, experiments, show_plots=True, expdir=None):
     """
     Plot:
         - true data vs. prediction
         - training and test error over time
         - evolution of lambda_t
     """
-    raw_input('Press Enter to plot figures')
+    # Should we display on screen or just save as a file?
+    import matplotlib.pyplot as pyplot
+    if show_plots:
+        plot_ext = 'png'
+    else:
+        plot_ext = 'pdf'
+
     # Model output (currently disabled).
     if False:
         to_plot = []
@@ -479,6 +485,12 @@ def plot(results, experiments):
         if len(lst) < n:
             lst += [lst[-1]] * (n - len(lst))
 
+    def get_figure(i):
+        if show_plots:
+            return pyplot.figure(i)
+        else:
+            return pyplot.figure(i, figsize=(15, 15))
+
     for exp_name, model, params, errors, lambdas, minibatch_size in results:
 
         model.fill_params(params)
@@ -490,7 +502,7 @@ def plot(results, experiments):
                        minibatch_size)
 
         # Offline training error.
-        fig = pyplot.figure(1)
+        fig = get_figure(1)
         to_plot = [e[0] for e in errors]
         complete(to_plot, len(x_vals))
         pyplot.plot(x_vals, to_plot, label=exp_name)
@@ -501,14 +513,15 @@ def plot(results, experiments):
                     pyplot.axvline(x=xv)
 
         # Test error.
-        fig = pyplot.figure(2)
+        fig = get_figure(2)
         to_plot = [e[1] for e in errors]
         complete(to_plot, len(x_vals))
         pyplot.plot(x_vals, to_plot, label=exp_name)
 
         # Evolution of lambda_t.
-        fig = pyplot.figure(3)
+        fig = get_figure(3)
         pyplot.plot(x_vals[0:len(lambdas)], lambdas, label=exp_name)
+
 
     # Offline training error.
     pyplot.figure(1)
@@ -516,6 +529,8 @@ def plot(results, experiments):
     pyplot.xlabel('n_samples')
     pyplot.ylabel('offline training error')
     pyplot.legend()
+    if expdir is not None:
+        pyplot.savefig(os.path.join(expdir, 'train_error.%s' % plot_ext))
 
     # Test error.
     pyplot.figure(2)
@@ -523,20 +538,27 @@ def plot(results, experiments):
     pyplot.xlabel('n_samples')
     pyplot.ylabel('test error')
     pyplot.legend()
+    if expdir is not None:
+        pyplot.savefig(os.path.join(expdir, 'test_error.%s' % plot_ext))
 
     # Lambda.
     pyplot.figure(3)
     pyplot.xlabel('k')
     pyplot.ylabel('lambda_t')
     pyplot.legend()
+    if expdir is not None:
+        pyplot.savefig(os.path.join(expdir, 'lambda_t.%s' % plot_ext))
 
     # Show plots.
-    pyplot.show()
+    if show_plots:
+        pyplot.show()
 
 
-def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)', model_spec='784-10-10', n_offline_train=500, n_test=100, task='classification'):
+def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)', model_spec='784-%(n_hidden)s-10', n_offline_train=500, n_test=100, n_hidden=10, task='classification',
+         experiments=None, show_plots=True, expdir=None):
     results = []
     max_samples = 300000
+    model_spec = model_spec % {'n_hidden': n_hidden}
     data_spec = data_spec % {'n_offline_train': n_offline_train,
                              'n_test': n_test}
     def make_exp(spec):
@@ -574,50 +596,55 @@ def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)', model_spec='784-10
                 constrain_lambda=constrain_lambda,
                 n_offline_train=n_off)
 
-    experiments = dict((k, make_exp(k)) for k in (
-        'batch_all_normalize',
-        #'batch_100_normalize',
-        #'batch_500_normalize',
-        #'batch_1000',
-        #'batch_1000_normalize',
-        #'batch_1010_normalize',
-        #'batch_2000',
-        #'batch_2000_normalize',
-        #'batch_2000_normalize_neglambda',
-        #'batch_5000',
-        #'batch_5000_normalize',
-        #'batch_5000_normalize_neglambda',
-        #'batch_10000',
-        #'batch_10000_normalize',
-        #'batch_10000_normalize_neglambda',
-        #'batch_10000_restart',
-        #'batch_50000_normalize',
-        #'online_1000_1_normalize',
-        #'online_1000_10_normalize',
-        #'online_1000_10_normalize_neglambda',
-        #'online_1000_100',
-        #'online_1000_100_normalize',
-        #'online_1000_100_normalize_neglambda',
-        #'online_1000_1000_normalize',
-        #'online_1000_1000_normalize_neglambda',
-        #'online_1000_1000_normalize_restart',
-        #'online_10000_1',
-        #'online_10000_1_normalize',
-        #'online_10000_10',
-        #'online_10000_10_normalize',
-        #'online_10000_100',
-        #'online_10000_100_normalize',
-        #'online_10000_100_normalize_neglambda',
-        #'online_10000_100_normalize_restart',
-        #'online_10000_1000',
-        #'online_10000_1000_normalize',
-        #'online_10000_1000_normalize_neglambda',
-        #'online_10000_1000_restart',
-        #'online_10000_10000',
-        #'online_10000_10000_normalize',
-        #'online_10000_10000_normalize_neglambda',
-        #'online_10000_10000_normalize_restart',
-        ))
+    if experiments is None:
+        experiments = (
+            'batch_all_normalize',
+            #'batch_100_normalize',
+            #'batch_500_normalize',
+            #'batch_1000',
+            #'batch_1000_normalize',
+            #'batch_1010_normalize',
+            #'batch_2000',
+            #'batch_2000_normalize',
+            #'batch_2000_normalize_neglambda',
+            #'batch_5000',
+            #'batch_5000_normalize',
+            #'batch_5000_normalize_neglambda',
+            #'batch_10000',
+            #'batch_10000_normalize',
+            #'batch_10000_normalize_neglambda',
+            #'batch_10000_restart',
+            #'batch_50000_normalize',
+            #'online_1000_1_normalize',
+            #'online_1000_10_normalize',
+            #'online_1000_10_normalize_neglambda',
+            #'online_1000_100',
+            #'online_1000_100_normalize',
+            #'online_1000_100_normalize_neglambda',
+            #'online_1000_1000_normalize',
+            #'online_1000_1000_normalize_neglambda',
+            #'online_1000_1000_normalize_restart',
+            #'online_10000_1',
+            #'online_10000_1_normalize',
+            #'online_10000_10',
+            #'online_10000_10_normalize',
+            #'online_10000_100',
+            #'online_10000_100_normalize',
+            #'online_10000_100_normalize_neglambda',
+            #'online_10000_100_normalize_restart',
+            #'online_10000_1000',
+            #'online_10000_1000_normalize',
+            #'online_10000_1000_normalize_neglambda',
+            #'online_10000_1000_restart',
+            #'online_10000_10000',
+            #'online_10000_10000_normalize',
+            #'online_10000_10000_normalize_neglambda',
+            #'online_10000_10000_normalize_restart',
+            )
+    else:
+        experiments = experiments.split(',')
+
+    experiments = dict((k, make_exp(k)) for k in experiments)
     for exp_name, exp_args in sorted(experiments.iteritems()):
         data_iter = get_data(data_spec)
         exp_args = exp_args.copy()
@@ -628,7 +655,7 @@ def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)', model_spec='784-10
                           task=task)
         results.append([exp_name, model] + list(minimize(
                                         model=model, task=task, **exp_args)))
-    plot(results, experiments)
+    plot(results, experiments, show_plots=show_plots, expdir=expdir)
 
 
 def test_ncg_2(profile=True, pydot_print=True):
@@ -739,7 +766,18 @@ def main():
     ml.util.run_with_try(_main)
 
 def _main():
-    test()
+    # Parse arguments.
+    args = {}
+    for arg in sys.argv[1:]:
+        key, val = arg.split('=')
+        args[key] = ml.util.convert_from_string(val)
+        if key == 'show_plots' and not args[key]:
+            global miniml
+            assert miniml is None
+            matplotlib.use('pdf')
+            import miniml
+    expdir = miniml.utility.make_expdir(state=args)
+    test(expdir=expdir, **args)
     #test_ncg_2()
     return 0
 
