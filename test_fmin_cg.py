@@ -534,9 +534,11 @@ def plot(results, experiments):
     pyplot.show()
 
 
-def test(data_spec='mnist(500,300,200)', model_spec='784-10-10', n_offline_train=500, n_test=500, task='classification'):
+def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)', model_spec='784-10-10', n_offline_train=500, n_test=100, task='classification'):
     results = []
     max_samples = 300000
+    data_spec = data_spec % {'n_offline_train': n_offline_train,
+                             'n_test': n_test}
     def make_exp(spec):
         # Return dictionary of options from an experiment's spec string.
         params = spec.split('_')
@@ -546,7 +548,11 @@ def test(data_spec='mnist(500,300,200)', model_spec='784-10-10', n_offline_train
             restart_every = 1
         else:
             restart_every = 0
-        batch_size = int(params[1])
+        batch_size = params[1]
+        if batch_size == 'all':
+            batch_size = n_offline_train
+        else:
+            batch_size = int(batch_size)
         assert batch_size <= n_offline_train
         maxiter = max_samples / batch_size
         if params[0] == 'batch':
@@ -569,8 +575,9 @@ def test(data_spec='mnist(500,300,200)', model_spec='784-10-10', n_offline_train
                 n_offline_train=n_off)
 
     experiments = dict((k, make_exp(k)) for k in (
+        'batch_all_normalize',
         #'batch_100_normalize',
-        'batch_500_normalize',
+        #'batch_500_normalize',
         #'batch_1000',
         #'batch_1000_normalize',
         #'batch_1010_normalize',
@@ -584,6 +591,7 @@ def test(data_spec='mnist(500,300,200)', model_spec='784-10-10', n_offline_train
         #'batch_10000_normalize',
         #'batch_10000_normalize_neglambda',
         #'batch_10000_restart',
+        #'batch_50000_normalize',
         #'online_1000_1_normalize',
         #'online_1000_10_normalize',
         #'online_1000_10_normalize_neglambda',
