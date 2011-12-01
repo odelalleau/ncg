@@ -565,12 +565,45 @@ def plot(results, experiments, show_plots=True, expdir=None):
         pyplot.show()
 
 
-def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)', model_spec='784-%(n_hidden)s-10', n_offline_train=500, n_test=100, n_hidden=10, task='classification',
-         experiments=None, show_plots=True, expdir=None, max_samples=300000):
+def test(data_spec='mnist(%(n_offline_train)s,0,%(n_test)s)',
+         model_spec='784-%(n_hidden)s-10', n_offline_train=500, n_test=100,
+         n_hidden=10, task='classification',
+         experiments=None, show_plots=True, expdir=None, max_samples=300000,
+         exp_type=None, exp_mb_size=None, exp_offset=None, exp_normalize=True):
     results = []
     model_spec = model_spec % {'n_hidden': n_hidden}
     data_spec = data_spec % {'n_offline_train': n_offline_train,
                              'n_test': n_test}
+    if exp_type is not None:
+        # Experiment parameters are provided on the command line: it means
+        # the 'experiments' parameter must be None.
+        assert experiments is None
+        if exp_type == 'batch':
+            raise NotImplementedError()
+        elif exp_type == 'online':
+            exp_data = {'minibatch_size': exp_mb_size,
+                        'minibatch_offset': exp_offset,
+                        'normalize': exp_normalize,
+                        }
+            assert None not in exp_data.values()
+            for param_name, param_val in exp_data.iteritems():
+                if isinstance(param_val, basestring):
+                    # Comma-separated values to be tried.
+                    exp_data[param_name] = map(ml.util.convert_from_string,
+                                               param_val.split(','))
+                    if len(exp_data[param_name]) > 1:
+                        raise NotImplementedError('Still need to implement '
+                                                  'multiple combinations')
+                else:
+                    exp_data[param_name] = [param_val]
+            # Basic implementation when there are no multiple combinations.
+            experiments = 'online_%s_%s' % (exp_data['minibatch_size'][0],
+                                            exp_data['minibatch_offset'][0])
+            if exp_data['normalize'][0]:
+                experiments += '_normalize'
+    if experiments is not None:
+        print 'Experiments: %s' % experiments
+
     def make_exp(spec):
         # Return dictionary of options from an experiment's spec string.
         params = spec.split('_')
