@@ -2,8 +2,13 @@
 # 20111130 #
 ############
 
-# Regular CG on MNIST with various batch sizes.
-jobdispatch --os=FC9,FC14 --condor=30 ./test_fmin_cg.py show_plots=False max_samples=5000000 "n_hidden={{10,50,100,200,300,500,1000}}" "experiments={{batch_1000_normalize,batch_5000_normalize,batch_10000_normalize,batch_all_normalize}}"
+# 'online1' Online CG on MNIST  75
+# 3d5f20b
+jobdispatch --os=FC9 --condor --mem=1900 ../test_fmin_cg.py show_plots=False max_samples=5000000 n_offline_train=50000 n_test=10000 "n_hidden={{10,50,100,200,300,500,1000}}" exp_type=online exp_normalize=True "exp_mb_size={{100,1000,5000,10000,50000}}" "exp_offset={{1,10,100,1000,10000,50000}}"
+
+# 'batch1' Regular CG on MNIST with various batch sizes.    74
+# 3d5f20b
+jobdispatch --os=FC9 --condor --mem=1900 ../test_fmin_cg.py show_plots=False max_samples=5000000 n_offline_train=50000 n_test=10000 "n_hidden={{10,50,100,200,300,500,1000}}" "experiments={{batch_1000_normalize,batch_5000_normalize,batch_10000_normalize,batch_all_normalize}}"
 
 ############
 # 20111116 #
