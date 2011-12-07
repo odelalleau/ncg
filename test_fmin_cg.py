@@ -10,7 +10,7 @@ __license__ = "BSD"
 __contact__ = "Olivier Delalleau <delallea@iro>"
 
 
-import math, os, sys, time
+import cPickle, math, os, sys, time
 from itertools import islice, izip
 
 import matplotlib
@@ -492,6 +492,12 @@ def plot(results, experiments, show_plots=True, expdir=None):
         else:
             return pyplot.figure(i, figsize=(15, 15))
 
+    plot_data = {
+            'offline_train': {},
+            'test': {},
+            'lambda_t': {},
+            }
+
     for exp_name, model, params, errors, lambdas, minibatch_size in results:
 
         model.fill_params(params)
@@ -510,6 +516,8 @@ def plot(results, experiments, show_plots=True, expdir=None):
             to_plot = [e[0] for e in errors[cname]]
             complete(to_plot, len(x_vals))
             pyplot.plot(x_vals, to_plot, label=exp_name)
+            plot_data['offline_train'].setdefault(cname, {})
+            plot_data['offline_train'][cname][exp_name] = (x_vals, to_plot)
             if False:
                 # Debug indicators of restarts.
                 for xv, lamb in izip(x_vals, lambdas):
@@ -522,12 +530,14 @@ def plot(results, experiments, show_plots=True, expdir=None):
             to_plot = [e[1] for e in errors[cname]]
             complete(to_plot, len(x_vals))
             pyplot.plot(x_vals, to_plot, label=exp_name)
+            plot_data['test'].setdefault(cname, {})
+            plot_data['test'][cname][exp_name] = (x_vals, to_plot)
 
         # Evolution of lambda_t.
         fig = get_figure(fig_idx)
         fig_idx += 1
         pyplot.plot(x_vals[0:len(lambdas)], lambdas, label=exp_name)
-
+        plot_data['lambda_t'][exp_name] = (x_vals[0:len(lambdas)], lambdas)
 
     fig_idx = 1
     for cname in sorted(errors):
@@ -559,6 +569,9 @@ def plot(results, experiments, show_plots=True, expdir=None):
     pyplot.legend()
     if expdir is not None:
         pyplot.savefig(os.path.join(expdir, 'lambda_t.%s' % plot_ext))
+        f_out = open(os.path.join(expdir, 'results.pkl'), 'wb')
+        cPickle.dump(plot_data, f_out, protocol=-1)
+        f_out.close()
 
     # Show plots.
     if show_plots:
