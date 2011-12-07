@@ -15,7 +15,11 @@ def main():
     constraints = {}
     for arg in sys.argv[1:]:
         k, v = arg.split('=')
-        constraints[k] = float(v)
+        try:
+             v = float(v)
+        except ValueError:
+            pass
+        constraints[k] = v
     # Latest Git repo revision where default options were updated.
     latest_version = '3d5f20b'
     # Map an option to its default value, depending on the Git repo revision.
