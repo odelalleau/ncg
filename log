@@ -1,4 +1,20 @@
 ############
+# 20111207 #
+############
+
+# Redoing experiments now that the results are saved.
+# Also running them for twice as long since some had not converged yet.
+
+# 'online2' Online CG on MNIST  553
+# b8f6979
+jobdispatch --os=FC9 --condor --mem=1900 ../test_fmin_cg.py show_plots=False max_samples=5000000 n_offline_train=50000 n_test=10000 "n_hidden={{10,50,100,200,300,500,1000}}" exp_type=online exp_normalize=True "exp_mb_size={{100,1000,5000,10000,50000}}" "exp_offset={{1,10,100,1000,10000,50000}}"
+
+# 'batch2' Regular CG on MNIST with various batch sizes.    552
+# b8f6979
+jobdispatch --os=FC9 --condor --mem=1900 ../test_fmin_cg.py show_plots=False max_samples=10000000 n_offline_train=50000 n_test=10000 "n_hidden={{10,50,100,200,300,500,1000}}" "experiments={{batch_1000_normalize,batch_5000_normalize,batch_10000_normalize,batch_all_normalize}}"
+
+
+############
 # 20111130 #
 ############
 
